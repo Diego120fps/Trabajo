@@ -13,6 +13,11 @@ var FIELD_UM = 'iltrum';       // Unidad de medida
 
 var QTY_DIVISOR = 10000;
 
+// Hay registros donde Branch/Plant viene en blanco (aún no se había
+// definido al momento de la transacción); esos registros en realidad
+// pertenecen al branch 2300 por defecto.
+var DEFAULT_BRANCH = '2300';
+
 // La Data API de Domo aplica un límite de filas por defecto si no se manda
 // "limit" explícito, lo que puede recortar el resultado. Se pide alto en
 // todas las consultas para no perder filas/valores.
@@ -21,9 +26,9 @@ var ROW_LIMIT = 100000;
 // Para el pivote NO se le pide a Domo que agrupe (groupby): con datasets de
 // millones de filas su motor de agregación parecía truncar/samplear en vez
 // de escanear todo, devolviendo menos tipos de transacción de los que
-// realmente existen. En su lugar se traen las filas YA FILTRADAS por
-// branch+item (un subconjunto mucho más chico) en páginas, y se suman en
-// el navegador.
+// realmente existen. En su lugar se traen las filas YA FILTRADAS por Item
+// (un subconjunto mucho más chico que el dataset completo) en páginas, y
+// se suman/filtran por Branch/Plant en el navegador.
 var PAGE_SIZE = 5000;
 var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
 
@@ -116,13 +121,18 @@ function generatePivot() {
   clearTable();
   showLoading(true);
 
-  // La Data API de Domo no soporta "and"/"or" ni paréntesis para combinar
-  // condiciones: varias condiciones se unen con COMA (equivale a AND), y
-  // "campo en varios valores" se expresa con el operador "in (...)".
-  var filter = buildFieldFilter(FIELD_BRANCH, branches) + ',' + buildFieldFilter(FIELD_ITEM, items);
+  // Solo se filtra por Item en el servidor: bastantes registros traen
+  // Branch/Plant en blanco (equivalen al branch DEFAULT_BRANCH), así que
+  // filtrar por branch en el servidor los dejaría fuera. El branch se
+  // aplica después, en el navegador, ya con el valor por defecto asignado.
+  var filter = buildFieldFilter(FIELD_ITEM, items);
 
   fetchAllFilteredRows(filter, function (rows) {
-    renderPivot(aggregateRows(rows));
+    var branchSet = toSet(branches);
+    var matchingRows = rows.filter(function (row) {
+      return branchSet[normalizeBranch(row[FIELD_BRANCH])];
+    });
+    renderPivot(aggregateRows(matchingRows));
     showLoading(false);
   }, function (err) {
     logError('Error generando el pivote', err);
@@ -131,11 +141,23 @@ function generatePivot() {
   });
 }
 
+// Blanco/vacío -> DEFAULT_BRANCH; si no, el valor tal cual (sin espacios).
+function normalizeBranch(value) {
+  var trimmed = (value === null || value === undefined) ? '' : String(value).trim();
+  return trimmed === '' ? DEFAULT_BRANCH : trimmed;
+}
+
+function toSet(values) {
+  var set = {};
+  values.forEach(function (v) { set[v] = true; });
+  return set;
+}
+
 // Trae, en páginas de PAGE_SIZE, todas las filas que cumplen el filtro
 // (sin groupby), acumulándolas hasta que una página regresa menos filas
 // de las pedidas (fin de los datos).
 function fetchAllFilteredRows(filter, onDone, onError) {
-  var fields = [FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
+  var fields = [FIELD_BRANCH, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
   var collected = [];
   var offset = 0;
   var page = 0;
