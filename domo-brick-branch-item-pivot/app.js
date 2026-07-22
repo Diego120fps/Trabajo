@@ -13,36 +13,24 @@ var FIELD_UM = 'iltrum';       // Unidad de medida
 
 var QTY_DIVISOR = 10000;
 
-var branchSelect = document.getElementById('branchSelect');
-var itemSelect = document.getElementById('itemSelect');
+var branchCheckboxes = document.getElementById('branchCheckboxes');
+var itemInput = document.getElementById('itemInput');
 var btnGenerar = document.getElementById('btnGenerar');
 var btnLimpiar = document.getElementById('btnLimpiar');
 var statusMsg = document.getElementById('statusMsg');
 var loadingEl = document.getElementById('loading');
 var pivotTable = document.getElementById('pivotTable');
 
-// Cache en memoria de los datos de transacciones (branch+item+tipo+um+qty),
-// ya agrupados. Se llena una sola vez y de ahí en adelante el cascadeo del
-// select de Items y el pivote se calculan en el navegador con JS, sin volver
-// a pegarle a domo.get.
-var allRows = [];
-var dataReady = false;
-
 init();
 
 function init() {
-  branchSelect.addEventListener('change', onBranchChange);
-  itemSelect.addEventListener('change', onItemChange);
   btnGenerar.addEventListener('click', generatePivot);
   btnLimpiar.addEventListener('click', resetAll);
 
-  // Las dos consultas van por separado y en paralelo: si una falla, no se
-  // lleva a la otra por delante, y cada una reporta su propio error.
   loadBranches();
-  loadTransactionData();
 }
 
-// ---------- Paso 1: cargar Branch/Plant ----------
+// ---------- Paso 1: cargar Branch/Plant como checkboxes ----------
 
 function loadBranches() {
   showLoading(true);
@@ -56,131 +44,92 @@ function loadBranches() {
 
   domo.get(query)
     .then(function (data) {
-      populateSelect(branchSelect, data, FIELD_BRANCH);
+      renderBranchCheckboxes(data);
       showLoading(false);
     })
     .catch(function (err) {
       logError('Error cargando Branch/Plant', err);
       setStatus('No se pudo cargar Branch/Plant. ' + describeError(err));
+      branchCheckboxes.innerHTML = '';
       showLoading(false);
     });
 }
 
-// ---------- Carga de datos de transacciones (para Items + pivote) ----------
+function renderBranchCheckboxes(data) {
+  branchCheckboxes.innerHTML = '';
 
-function loadTransactionData() {
-  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
-  var groupby = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM];
+  var values = (data || [])
+    .map(function (row) { return row[FIELD_BRANCH]; })
+    .filter(function (v) { return v !== null && v !== undefined && v !== ''; });
 
-  // iltrqt queda fuera del groupby, así que Domo lo suma solo por cada
-  // combinación de branch/item/tipo de transacción/unidad de medida.
+  if (values.length === 0) {
+    branchCheckboxes.innerHTML = '<span class="hint">No se encontraron valores.</span>';
+    return;
+  }
+
+  values.forEach(function (value) {
+    var label = document.createElement('label');
+
+    var checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = value;
+    checkbox.className = 'branch-checkbox';
+
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(value));
+
+    branchCheckboxes.appendChild(label);
+  });
+}
+
+// ---------- Paso 2: generar el pivote filtrando por Branch/Plant + Item(s) ----------
+
+function generatePivot() {
+  var branches = getSelectedBranches();
+  var items = getItemsFromInput();
+
+  if (branches.length === 0) {
+    setStatus('Selecciona al menos un Branch/Plant.');
+    return;
+  }
+  if (items.length === 0) {
+    setStatus('Escribe al menos un Item.');
+    return;
+  }
+
+  setStatus('');
+  clearTable();
+  showLoading(true);
+
+  var fields = [FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
+  var groupby = [FIELD_TRX_DESC, FIELD_UM];
+
+  // Filtro SIN encodeURIComponent: se manda igual a como lo documenta Domo
+  // (comillas simples y "=" literales). Codificar todo el filtro estaba
+  // provocando 400 en la Data API.
+  var filter = buildOrFilter(FIELD_BRANCH, branches) + ' and ' + buildOrFilter(FIELD_ITEM, items);
+
   var query = '/data/v1/' + datasetId +
     '?fields=' + fields.join() +
-    '&groupby=' + groupby.join();
+    '&groupby=' + groupby.join() +
+    '&filter=' + filter +
+    '&orderby=' + FIELD_TRX_DESC;
 
-  console.log('Query datos de transacciones:', query);
+  console.log('Query Pivote:', query);
 
   domo.get(query)
     .then(function (data) {
-      allRows = data || [];
-      dataReady = true;
+      renderPivot(data);
+      showLoading(false);
     })
     .catch(function (err) {
-      logError('Error cargando datos de transacciones', err);
-      setStatus('No se pudieron cargar los datos de transacciones (Items/pivote). ' + describeError(err));
+      logError('Error generando el pivote', err);
+      setStatus('No se pudo generar el pivote. ' + describeError(err));
+      showLoading(false);
     });
 }
 
-// ---------- Paso 2: al cambiar Branch/Plant, arma el select de Items ----------
-
-function onBranchChange() {
-  var branches = getSelectedValues(branchSelect);
-
-  itemSelect.innerHTML = '';
-  itemSelect.disabled = branches.length === 0;
-  btnGenerar.disabled = true;
-  clearTable();
-  setStatus('');
-
-  if (branches.length === 0) {
-    return;
-  }
-
-  if (!dataReady) {
-    setStatus('Aún cargando datos de transacciones, intenta de nuevo en un momento.');
-    return;
-  }
-
-  var branchSet = toSet(branches);
-  var rowsForBranches = allRows.filter(function (row) {
-    return branchSet[row[FIELD_BRANCH]];
-  });
-
-  var items = uniqueValues(rowsForBranches, FIELD_ITEM);
-  items.forEach(function (value) {
-    var opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    itemSelect.appendChild(opt);
-  });
-
-  if (items.length === 0) {
-    setStatus('No se encontraron Items para el/los Branch/Plant seleccionados.');
-  }
-}
-
-function onItemChange() {
-  var items = getSelectedValues(itemSelect);
-  btnGenerar.disabled = items.length === 0;
-  clearTable();
-}
-
-// ---------- Paso 3: generar el pivote (agregado en el navegador) ----------
-
-function generatePivot() {
-  var branches = getSelectedValues(branchSelect);
-  var items = getSelectedValues(itemSelect);
-
-  if (branches.length === 0 || items.length === 0) {
-    setStatus('Selecciona al menos un Branch/Plant y un Item.');
-    return;
-  }
-
-  setStatus('');
-  clearTable();
-
-  var branchSet = toSet(branches);
-  var itemSet = toSet(items);
-
-  var filteredRows = allRows.filter(function (row) {
-    return branchSet[row[FIELD_BRANCH]] && itemSet[row[FIELD_ITEM]];
-  });
-
-  // Agrupa por tipo de transacción + unidad de medida, sumando la cantidad.
-  var pivotMap = {};
-  filteredRows.forEach(function (row) {
-    var key = row[FIELD_TRX_DESC] + '||' + row[FIELD_UM];
-    if (!pivotMap[key]) {
-      pivotMap[key] = {
-        trx: row[FIELD_TRX_DESC],
-        um: row[FIELD_UM],
-        qty: 0
-      };
-    }
-    pivotMap[key].qty += Number(row[FIELD_QTY]) || 0;
-  });
-
-  var pivotRows = Object.keys(pivotMap).map(function (key) {
-    return pivotMap[key];
-  });
-  pivotRows.sort(function (a, b) {
-    return String(a.trx).localeCompare(String(b.trx));
-  });
-
-  renderPivot(pivotRows);
-}
-
-function renderPivot(pivotRows) {
+function renderPivot(data) {
   var thead = pivotTable.querySelector('thead');
   var tbody = pivotTable.querySelector('tbody');
   thead.innerHTML = '';
@@ -194,7 +143,7 @@ function renderPivot(pivotRows) {
   });
   thead.appendChild(headerRow);
 
-  if (!pivotRows || pivotRows.length === 0) {
+  if (!data || data.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
     td.colSpan = 3;
@@ -205,12 +154,12 @@ function renderPivot(pivotRows) {
     return;
   }
 
-  pivotRows.forEach(function (row) {
+  data.forEach(function (row) {
     var tr = document.createElement('tr');
-    var qty = row.qty / QTY_DIVISOR;
+    var qty = (Number(row[FIELD_QTY]) || 0) / QTY_DIVISOR;
 
     var tdDesc = document.createElement('td');
-    tdDesc.textContent = row.trx;
+    tdDesc.textContent = row[FIELD_TRX_DESC];
     tr.appendChild(tdDesc);
 
     var tdQty = document.createElement('td');
@@ -219,7 +168,7 @@ function renderPivot(pivotRows) {
     tr.appendChild(tdQty);
 
     var tdUm = document.createElement('td');
-    tdUm.textContent = row.um;
+    tdUm.textContent = row[FIELD_UM];
     tr.appendChild(tdUm);
 
     tbody.appendChild(tr);
@@ -228,45 +177,27 @@ function renderPivot(pivotRows) {
 
 // ---------- Utilidades ----------
 
-function populateSelect(selectEl, data, field) {
-  selectEl.innerHTML = '';
-  (data || []).forEach(function (row) {
-    var value = row[field];
-    if (value === null || value === undefined || value === '') return;
-    var opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    selectEl.appendChild(opt);
+function getSelectedBranches() {
+  var checked = branchCheckboxes.querySelectorAll('.branch-checkbox:checked');
+  return Array.prototype.slice.call(checked).map(function (chk) {
+    return chk.value;
   });
 }
 
-function uniqueValues(rows, field) {
-  var seen = {};
-  var result = [];
-  rows.forEach(function (row) {
-    var value = row[field];
-    if (value === null || value === undefined || value === '') return;
-    if (!seen[value]) {
-      seen[value] = true;
-      result.push(value);
-    }
-  });
-  result.sort();
-  return result;
+function getItemsFromInput() {
+  return itemInput.value
+    .split(',')
+    .map(function (v) { return v.trim(); })
+    .filter(function (v) { return v.length > 0; });
 }
 
-function toSet(values) {
-  var set = {};
-  values.forEach(function (v) {
-    set[v] = true;
+// Arma (field='a' or field='b' or ...) con comillas simples escapadas,
+// sin URL-encodear: así es como lo espera la Data API de Domo.
+function buildOrFilter(field, values) {
+  var clauses = values.map(function (v) {
+    return field + "='" + String(v).replace(/'/g, "''") + "'";
   });
-  return set;
-}
-
-function getSelectedValues(selectEl) {
-  return Array.prototype.slice.call(selectEl.selectedOptions).map(function (opt) {
-    return opt.value;
-  });
+  return '(' + clauses.join(' or ') + ')';
 }
 
 // Extrae un mensaje legible del error que devuelve domo.get (puede ser un
@@ -308,10 +239,9 @@ function showLoading(show) {
 }
 
 function resetAll() {
-  Array.prototype.forEach.call(branchSelect.options, function (opt) { opt.selected = false; });
-  itemSelect.innerHTML = '';
-  itemSelect.disabled = true;
-  btnGenerar.disabled = true;
+  var checked = branchCheckboxes.querySelectorAll('.branch-checkbox:checked');
+  Array.prototype.forEach.call(checked, function (chk) { chk.checked = false; });
+  itemInput.value = '';
   clearTable();
   setStatus('');
 }

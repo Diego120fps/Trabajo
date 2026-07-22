@@ -11,19 +11,20 @@
 
     <div class="filters-row">
       <div class="filter-group">
-        <label for="branchSelect">Branch/Plant</label>
-        <select id="branchSelect" multiple size="6"></select>
-        <span class="hint">Mantén Ctrl (Cmd en Mac) para seleccionar varios</span>
+        <label>Branch/Plant</label>
+        <div id="branchCheckboxes" class="checkbox-list">
+          <span class="hint">Cargando...</span>
+        </div>
       </div>
 
       <div class="filter-group">
-        <label for="itemSelect">Item</label>
-        <select id="itemSelect" multiple size="6" disabled></select>
-        <span class="hint">Selecciona primero Branch/Plant</span>
+        <label for="itemInput">Item</label>
+        <input type="text" id="itemInput" placeholder="Ej: 1001A, 1002B, 1003C" />
+        <span class="hint">Puedes escribir varios Items separados por coma</span>
       </div>
 
       <div class="filter-actions">
-        <button id="btnGenerar" disabled>Generar pivote</button>
+        <button id="btnGenerar">Generar pivote</button>
         <button id="btnLimpiar" class="secondary">Limpiar</button>
       </div>
     </div>
