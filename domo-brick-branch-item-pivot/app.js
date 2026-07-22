@@ -13,6 +13,11 @@ var FIELD_UM = 'iltrum';       // Unidad de medida
 
 var QTY_DIVISOR = 10000;
 
+// La Data API de Domo aplica un límite de filas por defecto si no se manda
+// "limit" explícito, lo que puede recortar el resultado. Se pide alto en
+// todas las consultas para no perder filas/valores.
+var ROW_LIMIT = 100000;
+
 var branchCheckboxes = document.getElementById('branchCheckboxes');
 var itemInput = document.getElementById('itemInput');
 var btnGenerar = document.getElementById('btnGenerar');
@@ -38,7 +43,8 @@ function loadBranches() {
   var query = '/data/v1/' + datasetId +
     '?fields=' + FIELD_BRANCH +
     '&groupby=' + FIELD_BRANCH +
-    '&orderby=' + FIELD_BRANCH;
+    '&orderby=' + FIELD_BRANCH +
+    '&limit=' + ROW_LIMIT;
 
   console.log('Query Branch/Plant:', query);
 
@@ -113,7 +119,8 @@ function generatePivot() {
     '?fields=' + fields.join() +
     '&groupby=' + groupby.join() +
     '&filter=' + filter +
-    '&orderby=' + FIELD_TRX_DESC;
+    '&orderby=' + FIELD_TRX_DESC +
+    '&limit=' + ROW_LIMIT;
 
   console.log('Query Pivote:', query);
 
