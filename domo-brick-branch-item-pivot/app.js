@@ -18,6 +18,15 @@ var QTY_DIVISOR = 10000;
 // todas las consultas para no perder filas/valores.
 var ROW_LIMIT = 100000;
 
+// Para el pivote NO se le pide a Domo que agrupe (groupby): con datasets de
+// millones de filas su motor de agregación parecía truncar/samplear en vez
+// de escanear todo, devolviendo menos tipos de transacción de los que
+// realmente existen. En su lugar se traen las filas YA FILTRADAS por
+// branch+item (un subconjunto mucho más chico) en páginas, y se suman en
+// el navegador.
+var PAGE_SIZE = 5000;
+var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
+
 var branchCheckboxes = document.getElementById('branchCheckboxes');
 var itemInput = document.getElementById('itemInput');
 var btnGenerar = document.getElementById('btnGenerar');
@@ -107,36 +116,92 @@ function generatePivot() {
   clearTable();
   showLoading(true);
 
-  var fields = [FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
-  var groupby = [FIELD_TRX_DESC, FIELD_UM];
-
   // La Data API de Domo no soporta "and"/"or" ni paréntesis para combinar
   // condiciones: varias condiciones se unen con COMA (equivale a AND), y
   // "campo en varios valores" se expresa con el operador "in (...)".
   var filter = buildFieldFilter(FIELD_BRANCH, branches) + ',' + buildFieldFilter(FIELD_ITEM, items);
 
-  var query = '/data/v1/' + datasetId +
-    '?fields=' + fields.join() +
-    '&groupby=' + groupby.join() +
-    '&filter=' + filter +
-    '&orderby=' + FIELD_TRX_DESC +
-    '&limit=' + ROW_LIMIT;
-
-  console.log('Query Pivote:', query);
-
-  domo.get(query)
-    .then(function (data) {
-      renderPivot(data);
-      showLoading(false);
-    })
-    .catch(function (err) {
-      logError('Error generando el pivote', err);
-      setStatus('No se pudo generar el pivote. ' + describeError(err));
-      showLoading(false);
-    });
+  fetchAllFilteredRows(filter, function (rows) {
+    renderPivot(aggregateRows(rows));
+    showLoading(false);
+  }, function (err) {
+    logError('Error generando el pivote', err);
+    setStatus('No se pudo generar el pivote. ' + describeError(err));
+    showLoading(false);
+  });
 }
 
-function renderPivot(data) {
+// Trae, en páginas de PAGE_SIZE, todas las filas que cumplen el filtro
+// (sin groupby), acumulándolas hasta que una página regresa menos filas
+// de las pedidas (fin de los datos).
+function fetchAllFilteredRows(filter, onDone, onError) {
+  var fields = [FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
+  var collected = [];
+  var offset = 0;
+  var page = 0;
+
+  function fetchPage() {
+    page += 1;
+    if (page > MAX_PAGES) {
+      onError(new Error('Se alcanzó el máximo de páginas (' + MAX_PAGES + ') sin terminar de leer los datos.'));
+      return;
+    }
+
+    var query = '/data/v1/' + datasetId +
+      '?fields=' + fields.join() +
+      '&filter=' + filter +
+      '&limit=' + PAGE_SIZE +
+      '&offset=' + offset;
+
+    console.log('Query Pivote (página ' + page + ', offset ' + offset + '):', query);
+    setStatus('Cargando registros... (' + collected.length + ' hasta ahora)');
+
+    domo.get(query)
+      .then(function (data) {
+        data = data || [];
+        collected = collected.concat(data);
+
+        if (data.length < PAGE_SIZE) {
+          setStatus('');
+          onDone(collected);
+        } else {
+          offset += PAGE_SIZE;
+          fetchPage();
+        }
+      })
+      .catch(onError);
+  }
+
+  fetchPage();
+}
+
+// Agrupa por tipo de transacción + unidad de medida, sumando la cantidad.
+function aggregateRows(rows) {
+  var pivotMap = {};
+
+  rows.forEach(function (row) {
+    var key = row[FIELD_TRX_DESC] + '||' + row[FIELD_UM];
+    if (!pivotMap[key]) {
+      pivotMap[key] = {
+        trx: row[FIELD_TRX_DESC],
+        um: row[FIELD_UM],
+        qty: 0
+      };
+    }
+    pivotMap[key].qty += Number(row[FIELD_QTY]) || 0;
+  });
+
+  var pivotRows = Object.keys(pivotMap).map(function (key) {
+    return pivotMap[key];
+  });
+  pivotRows.sort(function (a, b) {
+    return String(a.trx).localeCompare(String(b.trx));
+  });
+
+  return pivotRows;
+}
+
+function renderPivot(pivotRows) {
   var thead = pivotTable.querySelector('thead');
   var tbody = pivotTable.querySelector('tbody');
   thead.innerHTML = '';
@@ -150,7 +215,7 @@ function renderPivot(data) {
   });
   thead.appendChild(headerRow);
 
-  if (!data || data.length === 0) {
+  if (!pivotRows || pivotRows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
     td.colSpan = 3;
@@ -161,12 +226,12 @@ function renderPivot(data) {
     return;
   }
 
-  data.forEach(function (row) {
+  pivotRows.forEach(function (row) {
     var tr = document.createElement('tr');
-    var qty = (Number(row[FIELD_QTY]) || 0) / QTY_DIVISOR;
+    var qty = row.qty / QTY_DIVISOR;
 
     var tdDesc = document.createElement('td');
-    tdDesc.textContent = row[FIELD_TRX_DESC];
+    tdDesc.textContent = row.trx;
     tr.appendChild(tdDesc);
 
     var tdQty = document.createElement('td');
@@ -175,7 +240,7 @@ function renderPivot(data) {
     tr.appendChild(tdQty);
 
     var tdUm = document.createElement('td');
-    tdUm.textContent = row[FIELD_UM];
+    tdUm.textContent = row.um;
     tr.appendChild(tdUm);
 
     tbody.appendChild(tr);
