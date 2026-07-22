@@ -104,10 +104,10 @@ function generatePivot() {
   var fields = [FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
   var groupby = [FIELD_TRX_DESC, FIELD_UM];
 
-  // Filtro SIN encodeURIComponent: se manda igual a como lo documenta Domo
-  // (comillas simples y "=" literales). Codificar todo el filtro estaba
-  // provocando 400 en la Data API.
-  var filter = buildOrFilter(FIELD_BRANCH, branches) + ' and ' + buildOrFilter(FIELD_ITEM, items);
+  // La Data API de Domo no soporta "and"/"or" ni paréntesis para combinar
+  // condiciones: varias condiciones se unen con COMA (equivale a AND), y
+  // "campo en varios valores" se expresa con el operador "in (...)".
+  var filter = buildFieldFilter(FIELD_BRANCH, branches) + ',' + buildFieldFilter(FIELD_ITEM, items);
 
   var query = '/data/v1/' + datasetId +
     '?fields=' + fields.join() +
@@ -191,13 +191,16 @@ function getItemsFromInput() {
     .filter(function (v) { return v.length > 0; });
 }
 
-// Arma (field='a' or field='b' or ...) con comillas simples escapadas,
-// sin URL-encodear: así es como lo espera la Data API de Domo.
-function buildOrFilter(field, values) {
-  var clauses = values.map(function (v) {
-    return field + "='" + String(v).replace(/'/g, "''") + "'";
+// Un solo valor -> field='valor'. Varios valores -> field in ('a','b',...).
+// Sin paréntesis extra ni "or": esa es la sintaxis real de la Data API.
+function buildFieldFilter(field, values) {
+  var escaped = values.map(function (v) {
+    return "'" + String(v).replace(/'/g, "''") + "'";
   });
-  return '(' + clauses.join(' or ') + ')';
+  if (escaped.length === 1) {
+    return field + '=' + escaped[0];
+  }
+  return field + ' in (' + escaped.join(',') + ')';
 }
 
 // Extrae un mensaje legible del error que devuelve domo.get (puede ser un
