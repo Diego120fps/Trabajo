@@ -49,8 +49,8 @@ function loadBranches() {
       showLoading(false);
     })
     .catch(function (err) {
-      console.error('Error cargando Branch/Plant', err);
-      setStatus('No se pudo cargar Branch/Plant.');
+      logError('Error cargando Branch/Plant', err);
+      setStatus('No se pudo cargar Branch/Plant. ' + describeError(err));
       showLoading(false);
     });
 }
@@ -79,6 +79,8 @@ function onBranchChange() {
     '&filter=' + encodeURIComponent(filter) +
     '&orderby=' + FIELD_ITEM;
 
+  console.log('Query Items:', query);
+
   domo.get(query)
     .then(function (data) {
       populateSelect(itemSelect, data, FIELD_ITEM);
@@ -86,8 +88,8 @@ function onBranchChange() {
       showLoading(false);
     })
     .catch(function (err) {
-      console.error('Error cargando Items', err);
-      setStatus('No se pudo cargar Items.');
+      logError('Error cargando Items', err);
+      setStatus('No se pudo cargar Items. ' + describeError(err));
       showLoading(false);
     });
 }
@@ -126,14 +128,16 @@ function generatePivot() {
     '&filter=' + encodeURIComponent(filter) +
     '&orderby=' + FIELD_TRX_DESC;
 
+  console.log('Query Pivote:', query);
+
   domo.get(query)
     .then(function (data) {
       renderPivot(data);
       showLoading(false);
     })
     .catch(function (err) {
-      console.error('Error generando el pivote', err);
-      setStatus('No se pudo generar el pivote.');
+      logError('Error generando el pivote', err);
+      setStatus('No se pudo generar el pivote. ' + describeError(err));
       showLoading(false);
     });
 }
@@ -204,11 +208,38 @@ function getSelectedValues(selectEl) {
   });
 }
 
+// Se arma como (field='a' or field='b' or ...) en vez de "field in (...)":
+// es la sintaxis más ampliamente soportada por la Data API de bricks de Domo.
 function buildInFilter(field, values) {
-  var escaped = values.map(function (v) {
-    return "'" + String(v).replace(/'/g, "''") + "'";
+  var clauses = values.map(function (v) {
+    return field + "='" + String(v).replace(/'/g, "''") + "'";
   });
-  return field + ' in (' + escaped.join(',') + ')';
+  return '(' + clauses.join(' or ') + ')';
+}
+
+// Extrae un mensaje legible del error que devuelve domo.get (puede ser un
+// Error, una Response de fetch, o un string) para poder mostrarlo/loguearlo.
+function describeError(err) {
+  if (!err) return '';
+  if (typeof err === 'string') return err;
+  if (err.status) return 'HTTP ' + err.status + (err.statusText ? ' ' + err.statusText : '');
+  if (err.message) return err.message;
+  try {
+    return JSON.stringify(err);
+  } catch (e) {
+    return String(err);
+  }
+}
+
+// Si domo.get rechaza con una Response (fetch), intenta leer el cuerpo
+// para obtener el detalle real que Domo mandó (queda solo en consola).
+function logError(context, err) {
+  console.error(context, err, 'Query:', context);
+  if (err && typeof err.text === 'function') {
+    err.text().then(function (body) {
+      console.error(context + ' - respuesta del servidor:', body);
+    }).catch(function () {});
+  }
 }
 
 function clearTable() {
