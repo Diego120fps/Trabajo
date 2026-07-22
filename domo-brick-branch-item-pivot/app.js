@@ -147,9 +147,14 @@ function fetchAllFilteredRows(filter, onDone, onError) {
       return;
     }
 
+    // orderby fijo es indispensable para que offset/limit recorra TODO el
+    // conjunto sin huecos ni repeticiones: sin un orden determinístico,
+    // cada página puede regresar un subconjunto distinto y no se cubre
+    // el total real (esto causaba que faltaran tipos de transacción).
     var query = '/data/v1/' + datasetId +
       '?fields=' + fields.join() +
       '&filter=' + filter +
+      '&orderby=' + FIELD_TRX_DESC + ',' + FIELD_UM +
       '&limit=' + PAGE_SIZE +
       '&offset=' + offset;
 
@@ -162,7 +167,8 @@ function fetchAllFilteredRows(filter, onDone, onError) {
         collected = collected.concat(data);
 
         if (data.length < PAGE_SIZE) {
-          setStatus('');
+          console.log('Total de registros leídos:', collected.length);
+          setStatus('Se cargaron ' + collected.length.toLocaleString('es-MX') + ' registros.');
           onDone(collected);
         } else {
           offset += PAGE_SIZE;
