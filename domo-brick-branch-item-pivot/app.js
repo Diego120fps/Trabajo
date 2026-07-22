@@ -21,6 +21,12 @@ var statusMsg = document.getElementById('statusMsg');
 var loadingEl = document.getElementById('loading');
 var pivotTable = document.getElementById('pivotTable');
 
+// Cache en memoria de todo el dataset ya agrupado. Se llena una sola vez al
+// iniciar y de ahí en adelante TODO el filtrado/cascada/pivote se hace en el
+// navegador con JS, sin volver a pegarle a domo.get. Esto evita depender de
+// la sintaxis exacta de "filter=" en la Data API, que estaba devolviendo 400.
+var allRows = [];
+
 init();
 
 function init() {
@@ -29,39 +35,58 @@ function init() {
   btnGenerar.addEventListener('click', generatePivot);
   btnLimpiar.addEventListener('click', resetAll);
 
-  loadBranches();
+  loadAllData();
 }
 
-// ---------- Paso 1: cargar Branch/Plant ----------
+// ---------- Carga única de datos ----------
 
-function loadBranches() {
+function loadAllData() {
   showLoading(true);
   setStatus('');
 
+  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
+  var groupby = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM];
+
+  // Mismo patrón fields+groupby que ya funcionaba para Branch/Plant, sin
+  // "filter": iltrqt queda fuera del groupby, así que Domo lo suma solo
+  // por cada combinación de branch/item/tipo de transacción/UM.
   var query = '/data/v1/' + datasetId +
-    '?fields=' + FIELD_BRANCH +
-    '&groupby=' + FIELD_BRANCH +
-    '&orderby=' + FIELD_BRANCH;
+    '?fields=' + fields.join() +
+    '&groupby=' + groupby.join();
+
+  console.log('Query inicial:', query);
 
   domo.get(query)
     .then(function (data) {
-      populateSelect(branchSelect, data, FIELD_BRANCH);
+      allRows = data || [];
+      populateBranchSelect();
       showLoading(false);
     })
     .catch(function (err) {
-      logError('Error cargando Branch/Plant', err);
-      setStatus('No se pudo cargar Branch/Plant. ' + describeError(err));
+      logError('Error cargando datos', err);
+      setStatus('No se pudieron cargar los datos. ' + describeError(err));
       showLoading(false);
     });
 }
 
-// ---------- Paso 2: al cambiar Branch/Plant, cargar Items ----------
+function populateBranchSelect() {
+  var branches = uniqueValues(allRows, FIELD_BRANCH);
+  branchSelect.innerHTML = '';
+  branches.forEach(function (value) {
+    var opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    branchSelect.appendChild(opt);
+  });
+}
+
+// ---------- Paso 2: al cambiar Branch/Plant, arma el select de Items ----------
 
 function onBranchChange() {
   var branches = getSelectedValues(branchSelect);
 
   itemSelect.innerHTML = '';
-  itemSelect.disabled = true;
+  itemSelect.disabled = branches.length === 0;
   btnGenerar.disabled = true;
   clearTable();
   setStatus('');
@@ -70,28 +95,18 @@ function onBranchChange() {
     return;
   }
 
-  showLoading(true);
+  var branchSet = toSet(branches);
+  var rowsForBranches = allRows.filter(function (row) {
+    return branchSet[row[FIELD_BRANCH]];
+  });
 
-  var filter = buildInFilter(FIELD_BRANCH, branches);
-  var query = '/data/v1/' + datasetId +
-    '?fields=' + FIELD_ITEM +
-    '&groupby=' + FIELD_ITEM +
-    '&filter=' + encodeURIComponent(filter) +
-    '&orderby=' + FIELD_ITEM;
-
-  console.log('Query Items:', query);
-
-  domo.get(query)
-    .then(function (data) {
-      populateSelect(itemSelect, data, FIELD_ITEM);
-      itemSelect.disabled = false;
-      showLoading(false);
-    })
-    .catch(function (err) {
-      logError('Error cargando Items', err);
-      setStatus('No se pudo cargar Items. ' + describeError(err));
-      showLoading(false);
-    });
+  var items = uniqueValues(rowsForBranches, FIELD_ITEM);
+  items.forEach(function (value) {
+    var opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    itemSelect.appendChild(opt);
+  });
 }
 
 function onItemChange() {
@@ -100,7 +115,7 @@ function onItemChange() {
   clearTable();
 }
 
-// ---------- Paso 3: generar el pivote ----------
+// ---------- Paso 3: generar el pivote (agregado en el navegador) ----------
 
 function generatePivot() {
   var branches = getSelectedValues(branchSelect);
@@ -111,38 +126,41 @@ function generatePivot() {
     return;
   }
 
-  showLoading(true);
   setStatus('');
   clearTable();
 
-  var filter = buildInFilter(FIELD_BRANCH, branches) + ' and ' + buildInFilter(FIELD_ITEM, items);
+  var branchSet = toSet(branches);
+  var itemSet = toSet(items);
 
-  // iltrqt no va en el groupby: Domo lo suma automáticamente por cada
-  // combinación de iltrex + iltrum (tipo de transacción / unidad de medida).
-  var fields = [FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
-  var groupby = [FIELD_TRX_DESC, FIELD_UM];
+  var filteredRows = allRows.filter(function (row) {
+    return branchSet[row[FIELD_BRANCH]] && itemSet[row[FIELD_ITEM]];
+  });
 
-  var query = '/data/v1/' + datasetId +
-    '?fields=' + fields.join() +
-    '&groupby=' + groupby.join() +
-    '&filter=' + encodeURIComponent(filter) +
-    '&orderby=' + FIELD_TRX_DESC;
+  // Agrupa por tipo de transacción + unidad de medida, sumando la cantidad.
+  var pivotMap = {};
+  filteredRows.forEach(function (row) {
+    var key = row[FIELD_TRX_DESC] + '||' + row[FIELD_UM];
+    if (!pivotMap[key]) {
+      pivotMap[key] = {
+        trx: row[FIELD_TRX_DESC],
+        um: row[FIELD_UM],
+        qty: 0
+      };
+    }
+    pivotMap[key].qty += Number(row[FIELD_QTY]) || 0;
+  });
 
-  console.log('Query Pivote:', query);
+  var pivotRows = Object.keys(pivotMap).map(function (key) {
+    return pivotMap[key];
+  });
+  pivotRows.sort(function (a, b) {
+    return String(a.trx).localeCompare(String(b.trx));
+  });
 
-  domo.get(query)
-    .then(function (data) {
-      renderPivot(data);
-      showLoading(false);
-    })
-    .catch(function (err) {
-      logError('Error generando el pivote', err);
-      setStatus('No se pudo generar el pivote. ' + describeError(err));
-      showLoading(false);
-    });
+  renderPivot(pivotRows);
 }
 
-function renderPivot(data) {
+function renderPivot(pivotRows) {
   var thead = pivotTable.querySelector('thead');
   var tbody = pivotTable.querySelector('tbody');
   thead.innerHTML = '';
@@ -156,7 +174,7 @@ function renderPivot(data) {
   });
   thead.appendChild(headerRow);
 
-  if (!data || data.length === 0) {
+  if (!pivotRows || pivotRows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
     td.colSpan = 3;
@@ -167,12 +185,12 @@ function renderPivot(data) {
     return;
   }
 
-  data.forEach(function (row) {
+  pivotRows.forEach(function (row) {
     var tr = document.createElement('tr');
-    var qty = (Number(row[FIELD_QTY]) || 0) / QTY_DIVISOR;
+    var qty = row.qty / QTY_DIVISOR;
 
     var tdDesc = document.createElement('td');
-    tdDesc.textContent = row[FIELD_TRX_DESC];
+    tdDesc.textContent = row.trx;
     tr.appendChild(tdDesc);
 
     var tdQty = document.createElement('td');
@@ -181,7 +199,7 @@ function renderPivot(data) {
     tr.appendChild(tdQty);
 
     var tdUm = document.createElement('td');
-    tdUm.textContent = row[FIELD_UM];
+    tdUm.textContent = row.um;
     tr.appendChild(tdUm);
 
     tbody.appendChild(tr);
@@ -190,31 +208,33 @@ function renderPivot(data) {
 
 // ---------- Utilidades ----------
 
-function populateSelect(selectEl, data, field) {
-  selectEl.innerHTML = '';
-  (data || []).forEach(function (row) {
+function uniqueValues(rows, field) {
+  var seen = {};
+  var result = [];
+  rows.forEach(function (row) {
     var value = row[field];
     if (value === null || value === undefined || value === '') return;
-    var opt = document.createElement('option');
-    opt.value = value;
-    opt.textContent = value;
-    selectEl.appendChild(opt);
+    if (!seen[value]) {
+      seen[value] = true;
+      result.push(value);
+    }
   });
+  result.sort();
+  return result;
+}
+
+function toSet(values) {
+  var set = {};
+  values.forEach(function (v) {
+    set[v] = true;
+  });
+  return set;
 }
 
 function getSelectedValues(selectEl) {
   return Array.prototype.slice.call(selectEl.selectedOptions).map(function (opt) {
     return opt.value;
   });
-}
-
-// Se arma como (field='a' or field='b' or ...) en vez de "field in (...)":
-// es la sintaxis más ampliamente soportada por la Data API de bricks de Domo.
-function buildInFilter(field, values) {
-  var clauses = values.map(function (v) {
-    return field + "='" + String(v).replace(/'/g, "''") + "'";
-  });
-  return '(' + clauses.join(' or ') + ')';
 }
 
 // Extrae un mensaje legible del error que devuelve domo.get (puede ser un
@@ -234,7 +254,7 @@ function describeError(err) {
 // Si domo.get rechaza con una Response (fetch), intenta leer el cuerpo
 // para obtener el detalle real que Domo mandó (queda solo en consola).
 function logError(context, err) {
-  console.error(context, err, 'Query:', context);
+  console.error(context, err);
   if (err && typeof err.text === 'function') {
     err.text().then(function (body) {
       console.error(context + ' - respuesta del servidor:', body);
