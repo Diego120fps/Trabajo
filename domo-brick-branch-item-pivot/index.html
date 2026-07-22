@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pivote Branch/Plant - Item</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="branchSelect">Branch/Plant</label>
+        <select id="branchSelect" multiple size="6"></select>
+        <span class="hint">Mantén Ctrl (Cmd en Mac) para seleccionar varios</span>
+      </div>
+
+      <div class="filter-group">
+        <label for="itemSelect">Item</label>
+        <select id="itemSelect" multiple size="6" disabled></select>
+        <span class="hint">Selecciona primero Branch/Plant</span>
+      </div>
+
+      <div class="filter-actions">
+        <button id="btnGenerar" disabled>Generar pivote</button>
+        <button id="btnLimpiar" class="secondary">Limpiar</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div class="table-wrapper">
+      <table id="pivotTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
