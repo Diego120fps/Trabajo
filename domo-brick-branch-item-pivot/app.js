@@ -90,12 +90,13 @@ function renderBranchCheckboxes(data) {
   values.forEach(function (value) {
     var label = document.createElement('label');
 
-    var checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.value = value;
-    checkbox.className = 'branch-checkbox';
+    var radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'branchRadio';
+    radio.value = value;
+    radio.className = 'branch-radio';
 
-    label.appendChild(checkbox);
+    label.appendChild(radio);
     label.appendChild(document.createTextNode(value));
 
     branchCheckboxes.appendChild(label);
@@ -109,7 +110,7 @@ function generatePivot() {
   var items = getItemsFromInput();
 
   if (branches.length === 0) {
-    setStatus('Selecciona al menos un Branch/Plant.');
+    setStatus('Selecciona un Branch/Plant.');
     return;
   }
   if (items.length === 0) {
@@ -278,7 +279,7 @@ function renderPivot(pivotRows) {
 // ---------- Utilidades ----------
 
 function getSelectedBranches() {
-  var checked = branchCheckboxes.querySelectorAll('.branch-checkbox:checked');
+  var checked = branchCheckboxes.querySelectorAll('.branch-radio:checked');
   return Array.prototype.slice.call(checked).map(function (chk) {
     return chk.value;
   });
@@ -342,7 +343,7 @@ function showLoading(show) {
 }
 
 function resetAll() {
-  var checked = branchCheckboxes.querySelectorAll('.branch-checkbox:checked');
+  var checked = branchCheckboxes.querySelectorAll('.branch-radio:checked');
   Array.prototype.forEach.call(checked, function (chk) { chk.checked = false; });
   itemInput.value = '';
   clearTable();

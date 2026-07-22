@@ -93,7 +93,8 @@ body {
   white-space: nowrap;
 }
 
-.checkbox-list input[type="checkbox"] {
+.checkbox-list input[type="checkbox"],
+.checkbox-list input[type="radio"] {
   cursor: pointer;
 }
 
