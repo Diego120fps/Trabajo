@@ -15,13 +15,24 @@ var QTY_DIVISOR = 10000;
 
 // Hay registros donde Branch/Plant viene en blanco (aún no se había
 // definido al momento de la transacción); esos registros en realidad
-// pertenecen al branch 2300 por defecto.
-var DEFAULT_BRANCH = '2300';
+// pertenecen al branch 1221 por defecto.
+var DEFAULT_BRANCH = '1221';
 
-// La Data API de Domo aplica un límite de filas por defecto si no se manda
-// "limit" explícito, lo que puede recortar el resultado. Se pide alto en
-// todas las consultas para no perder filas/valores.
-var ROW_LIMIT = 100000;
+// Cada radio agrupa uno o varios códigos crudos de Branch/Plant bajo un
+// nombre de planta. Al seleccionar un radio se filtra por TODOS los
+// códigos de ese grupo.
+var BRANCH_GROUPS = [
+  { label: 'Plataforma', codes: ['1221', '2300'] },
+  { label: 'Laredo', codes: ['5130', '5140'] },
+  { label: 'AMP', codes: ['2200'] },
+  { label: 'Calle2', codes: ['2190'] },
+  { label: 'CDI', codes: ['1122'] }
+];
+
+var BRANCH_GROUPS_BY_LABEL = {};
+BRANCH_GROUPS.forEach(function (group) {
+  BRANCH_GROUPS_BY_LABEL[group.label] = group.codes;
+});
 
 // Para el pivote NO se le pide a Domo que agrupe (groupby): con datasets de
 // millones de filas su motor de agregación parecía truncar/samplear en vez
@@ -46,58 +57,25 @@ function init() {
   btnGenerar.addEventListener('click', generatePivot);
   btnLimpiar.addEventListener('click', resetAll);
 
-  loadBranches();
+  renderBranchRadios();
 }
 
-// ---------- Paso 1: cargar Branch/Plant como checkboxes ----------
+// ---------- Paso 1: pintar los radios de planta (Branch/Plant) ----------
 
-function loadBranches() {
-  showLoading(true);
-
-  var query = '/data/v1/' + datasetId +
-    '?fields=' + FIELD_BRANCH +
-    '&groupby=' + FIELD_BRANCH +
-    '&orderby=' + FIELD_BRANCH +
-    '&limit=' + ROW_LIMIT;
-
-  console.log('Query Branch/Plant:', query);
-
-  domo.get(query)
-    .then(function (data) {
-      renderBranchCheckboxes(data);
-      showLoading(false);
-    })
-    .catch(function (err) {
-      logError('Error cargando Branch/Plant', err);
-      setStatus('No se pudo cargar Branch/Plant. ' + describeError(err));
-      branchCheckboxes.innerHTML = '';
-      showLoading(false);
-    });
-}
-
-function renderBranchCheckboxes(data) {
+function renderBranchRadios() {
   branchCheckboxes.innerHTML = '';
 
-  var values = (data || [])
-    .map(function (row) { return row[FIELD_BRANCH]; })
-    .filter(function (v) { return v !== null && v !== undefined && v !== ''; });
-
-  if (values.length === 0) {
-    branchCheckboxes.innerHTML = '<span class="hint">No se encontraron valores.</span>';
-    return;
-  }
-
-  values.forEach(function (value) {
+  BRANCH_GROUPS.forEach(function (group) {
     var label = document.createElement('label');
 
     var radio = document.createElement('input');
     radio.type = 'radio';
     radio.name = 'branchRadio';
-    radio.value = value;
+    radio.value = group.label;
     radio.className = 'branch-radio';
 
     label.appendChild(radio);
-    label.appendChild(document.createTextNode(value));
+    label.appendChild(document.createTextNode(group.label));
 
     branchCheckboxes.appendChild(label);
   });
@@ -278,11 +256,12 @@ function renderPivot(pivotRows) {
 
 // ---------- Utilidades ----------
 
+// Devuelve los códigos crudos de Branch/Plant del grupo marcado
+// (ej: "Plataforma" -> ['1221', '2300']).
 function getSelectedBranches() {
-  var checked = branchCheckboxes.querySelectorAll('.branch-radio:checked');
-  return Array.prototype.slice.call(checked).map(function (chk) {
-    return chk.value;
-  });
+  var checked = branchCheckboxes.querySelector('.branch-radio:checked');
+  if (!checked) return [];
+  return BRANCH_GROUPS_BY_LABEL[checked.value] || [];
 }
 
 function getItemsFromInput() {
