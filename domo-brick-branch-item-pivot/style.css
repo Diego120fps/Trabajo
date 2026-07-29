@@ -16,6 +16,22 @@ body {
   flex-direction: column;
   gap: 12px;
   height: 100%;
+  overflow-y: auto;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4d4d4d;
 }
 
 .filters-row {
@@ -140,6 +156,11 @@ button.secondary:hover {
   background: #f4f5f7;
 }
 
+button.small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .status-msg {
   font-size: 12px;
   color: #c0392b;
@@ -153,7 +174,7 @@ button.secondary:hover {
 }
 
 .table-wrapper {
-  flex: 1;
+  max-height: 260px;
   overflow: auto;
   border: 1px solid #e4e7eb;
   border-radius: 4px;
@@ -189,6 +210,18 @@ tbody tr:nth-child(even) {
 
 tbody tr:hover {
   background: #eef6fd;
+}
+
+#pivotTable tbody tr {
+  cursor: pointer;
+}
+
+#pivotTable tbody tr.selected-row {
+  background: #d7ecfc;
+}
+
+#pivotTable tbody tr.selected-row:hover {
+  background: #d7ecfc;
 }
 
 td.numeric {

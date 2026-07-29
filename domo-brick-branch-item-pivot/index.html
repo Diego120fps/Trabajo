@@ -32,8 +32,24 @@
     <div id="statusMsg" class="status-msg"></div>
     <div id="loading" class="loading" style="display:none;">Cargando...</div>
 
+    <div class="section-header">
+      <h3>Pivote</h3>
+      <button id="btnExportPivot" class="secondary small">Exportar a Excel</button>
+    </div>
+    <span class="hint">Da clic en una fila para ver su detalle abajo</span>
     <div class="table-wrapper">
       <table id="pivotTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <div class="section-header">
+      <h3 id="detailTitle">Detalle</h3>
+      <button id="btnExportDetail" class="secondary small">Exportar a Excel</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="detailTable">
         <thead></thead>
         <tbody></tbody>
       </table>

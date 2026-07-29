@@ -47,17 +47,30 @@ var branchCheckboxes = document.getElementById('branchCheckboxes');
 var itemInput = document.getElementById('itemInput');
 var btnGenerar = document.getElementById('btnGenerar');
 var btnLimpiar = document.getElementById('btnLimpiar');
+var btnExportPivot = document.getElementById('btnExportPivot');
+var btnExportDetail = document.getElementById('btnExportDetail');
 var statusMsg = document.getElementById('statusMsg');
 var loadingEl = document.getElementById('loading');
 var pivotTable = document.getElementById('pivotTable');
+var detailTable = document.getElementById('detailTable');
+var detailTitle = document.getElementById('detailTitle');
+
+// Filas crudas (branch+item+trx+um+qty) que arma el último pivote generado,
+// usadas para armar el detalle al hacer clic en una fila y para exportar.
+var lastMatchingRows = [];
+var lastPivotRows = [];
+var lastDetailRows = [];
 
 init();
 
 function init() {
   btnGenerar.addEventListener('click', generatePivot);
   btnLimpiar.addEventListener('click', resetAll);
+  btnExportPivot.addEventListener('click', exportPivotToExcel);
+  btnExportDetail.addEventListener('click', exportDetailToExcel);
 
   renderBranchRadios();
+  renderDetail([], null);
 }
 
 // ---------- Paso 1: pintar los radios de planta (Branch/Plant) ----------
@@ -98,6 +111,7 @@ function generatePivot() {
 
   setStatus('');
   clearTable();
+  renderDetail([], null);
   showLoading(true);
 
   // Solo se filtra por Item en el servidor: bastantes registros traen
@@ -111,7 +125,13 @@ function generatePivot() {
     var matchingRows = rows.filter(function (row) {
       return branchSet[normalizeBranch(row[FIELD_BRANCH])];
     });
-    renderPivot(aggregateRows(matchingRows));
+
+    lastMatchingRows = matchingRows;
+    lastPivotRows = aggregateRows(matchingRows);
+    lastDetailRows = [];
+
+    renderPivot(lastPivotRows);
+    renderDetail([], null);
     showLoading(false);
   }, function (err) {
     logError('Error generando el pivote', err);
@@ -136,7 +156,7 @@ function toSet(values) {
 // (sin groupby), acumulándolas hasta que una página regresa menos filas
 // de las pedidas (fin de los datos).
 function fetchAllFilteredRows(filter, onDone, onError) {
-  var fields = [FIELD_BRANCH, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
+  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
   var collected = [];
   var offset = 0;
   var page = 0;
@@ -250,8 +270,146 @@ function renderPivot(pivotRows) {
     tdUm.textContent = row.um;
     tr.appendChild(tdUm);
 
+    tr.addEventListener('click', function () {
+      Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function (r) {
+        r.classList.remove('selected-row');
+      });
+      tr.classList.add('selected-row');
+      showDetailFor(row.trx, row.um);
+    });
+
     tbody.appendChild(tr);
   });
+}
+
+// ---------- Detalle: filas crudas del tipo de transacción seleccionado ----------
+
+function showDetailFor(trx, um) {
+  var rows = lastMatchingRows.filter(function (row) {
+    return row[FIELD_TRX_DESC] === trx && row[FIELD_UM] === um;
+  });
+  lastDetailRows = rows;
+  renderDetail(rows, trx);
+}
+
+function renderDetail(rows, trx) {
+  detailTitle.textContent = trx ? ('Detalle: ' + trx) : 'Detalle';
+
+  var thead = detailTable.querySelector('thead');
+  var tbody = detailTable.querySelector('tbody');
+  thead.innerHTML = '';
+  tbody.innerHTML = '';
+
+  var headerRow = document.createElement('tr');
+  ['Branch/Plant', 'Item', 'Tipo de transacción', 'Cantidad', 'Unidad de medida'].forEach(function (text) {
+    var th = document.createElement('th');
+    th.textContent = text;
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+
+  if (!rows || rows.length === 0) {
+    var emptyRow = document.createElement('tr');
+    var td = document.createElement('td');
+    td.colSpan = 5;
+    td.className = 'empty-cell';
+    td.textContent = 'Da clic en una fila del pivote para ver su detalle.';
+    emptyRow.appendChild(td);
+    tbody.appendChild(emptyRow);
+    return;
+  }
+
+  rows.forEach(function (row) {
+    var tr = document.createElement('tr');
+    var qty = (Number(row[FIELD_QTY]) || 0) / QTY_DIVISOR;
+
+    [
+      normalizeBranch(row[FIELD_BRANCH]),
+      row[FIELD_ITEM],
+      row[FIELD_TRX_DESC],
+      null,
+      row[FIELD_UM]
+    ].forEach(function (value, idx) {
+      var tdEl = document.createElement('td');
+      if (idx === 3) {
+        tdEl.className = 'numeric';
+        tdEl.textContent = qty.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      } else {
+        tdEl.textContent = value;
+      }
+      tr.appendChild(tdEl);
+    });
+
+    tbody.appendChild(tr);
+  });
+}
+
+// ---------- Exportar a Excel (CSV) ----------
+
+function exportPivotToExcel() {
+  if (!lastPivotRows || lastPivotRows.length === 0) {
+    setStatus('No hay datos en el pivote para exportar.');
+    return;
+  }
+
+  var headers = ['Tipo de transacción', 'Cantidad', 'Unidad de medida'];
+  var rows = lastPivotRows.map(function (row) {
+    return [row.trx, row.qty / QTY_DIVISOR, row.um];
+  });
+
+  downloadCSV('pivote.csv', toCSV(headers, rows));
+}
+
+function exportDetailToExcel() {
+  if (!lastDetailRows || lastDetailRows.length === 0) {
+    setStatus('No hay detalle para exportar. Da clic en una fila del pivote primero.');
+    return;
+  }
+
+  var headers = ['Branch/Plant', 'Item', 'Tipo de transacción', 'Cantidad', 'Unidad de medida'];
+  var rows = lastDetailRows.map(function (row) {
+    return [
+      normalizeBranch(row[FIELD_BRANCH]),
+      row[FIELD_ITEM],
+      row[FIELD_TRX_DESC],
+      (Number(row[FIELD_QTY]) || 0) / QTY_DIVISOR,
+      row[FIELD_UM]
+    ];
+  });
+
+  downloadCSV('detalle.csv', toCSV(headers, rows));
+}
+
+// Excel abre .csv de forma nativa; se evita depender de una librería externa
+// (SheetJS, etc.) dentro del sandbox del brick.
+function toCSV(headers, rows) {
+  var lines = [headers.map(csvEscape).join(',')];
+  rows.forEach(function (row) {
+    lines.push(row.map(csvEscape).join(','));
+  });
+  return lines.join('\r\n');
+}
+
+function csvEscape(value) {
+  var str = value === null || value === undefined ? '' : String(value);
+  if (/[",\r\n]/.test(str)) {
+    str = '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+
+function downloadCSV(filename, csvContent) {
+  // BOM UTF-8 para que Excel muestre bien acentos/ñ.
+  var blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+  var url = URL.createObjectURL(blob);
+
+  var link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
 
 // ---------- Utilidades ----------
@@ -326,5 +484,9 @@ function resetAll() {
   Array.prototype.forEach.call(checked, function (chk) { chk.checked = false; });
   itemInput.value = '';
   clearTable();
+  renderDetail([], null);
+  lastMatchingRows = [];
+  lastPivotRows = [];
+  lastDetailRows = [];
   setStatus('');
 }
