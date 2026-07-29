@@ -10,6 +10,8 @@ var FIELD_ITEM = 'illitm';     // Item
 var FIELD_TRX_DESC = 'iltrex'; // Descripción del tipo de transacción (filas del pivote)
 var FIELD_QTY = 'iltrqt';      // Cantidad de la transacción (se divide entre 10000)
 var FIELD_UM = 'iltrum';       // Unidad de medida
+var FIELD_DOCUMENT = 'ildoc';  // Documento
+var FIELD_FECHA = 'iltrdj';    // Fecha (formato juliano JDE: CYYDDD)
 
 var QTY_DIVISOR = 10000;
 
@@ -156,7 +158,7 @@ function toSet(values) {
 // (sin groupby), acumulándolas hasta que una página regresa menos filas
 // de las pedidas (fin de los datos).
 function fetchAllFilteredRows(filter, onDone, onError) {
-  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY];
+  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY, FIELD_DOCUMENT, FIELD_FECHA];
   var collected = [];
   var offset = 0;
   var page = 0;
@@ -301,7 +303,7 @@ function renderDetail(rows, trx) {
   tbody.innerHTML = '';
 
   var headerRow = document.createElement('tr');
-  ['Branch/Plant', 'Item', 'Tipo de transacción', 'Cantidad', 'Unidad de medida'].forEach(function (text) {
+  ['Branch/Plant', 'Item', 'Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Documento', 'Fecha'].forEach(function (text) {
     var th = document.createElement('th');
     th.textContent = text;
     headerRow.appendChild(th);
@@ -311,7 +313,7 @@ function renderDetail(rows, trx) {
   if (!rows || rows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
-    td.colSpan = 5;
+    td.colSpan = 7;
     td.className = 'empty-cell';
     td.textContent = 'Da clic en una fila del pivote para ver su detalle.';
     emptyRow.appendChild(td);
@@ -328,7 +330,9 @@ function renderDetail(rows, trx) {
       row[FIELD_ITEM],
       row[FIELD_TRX_DESC],
       null,
-      row[FIELD_UM]
+      row[FIELD_UM],
+      row[FIELD_DOCUMENT],
+      julianToDate(row[FIELD_FECHA])
     ].forEach(function (value, idx) {
       var tdEl = document.createElement('td');
       if (idx === 3) {
@@ -342,6 +346,34 @@ function renderDetail(rows, trx) {
 
     tbody.appendChild(tr);
   });
+}
+
+// Convierte una fecha juliana estilo JDE (formato CYYDDD: siglo + año + día
+// del año) a fecha estándar DD/MM/AAAA. Ej: 124001 -> 01/01/2024.
+function julianToDate(value) {
+  if (value === null || value === undefined || value === '') return '';
+
+  var num = Number(value);
+  if (isNaN(num) || num <= 0) return '';
+
+  var digits = String(Math.trunc(num));
+  if (digits.length < 5 || digits.length > 6) return String(value);
+  digits = ('000000' + digits).slice(-6);
+
+  var century = parseInt(digits.substring(0, 1), 10);
+  var yy = parseInt(digits.substring(1, 3), 10);
+  var dayOfYear = parseInt(digits.substring(3, 6), 10);
+
+  if (dayOfYear < 1 || dayOfYear > 366) return String(value);
+
+  var year = 1900 + (century * 100) + yy;
+  var date = new Date(year, 0, 1);
+  date.setDate(date.getDate() + dayOfYear - 1);
+
+  var day = ('0' + date.getDate()).slice(-2);
+  var month = ('0' + (date.getMonth() + 1)).slice(-2);
+
+  return day + '/' + month + '/' + date.getFullYear();
 }
 
 // ---------- Exportar a Excel (CSV) ----------
@@ -366,14 +398,16 @@ function exportDetailToExcel() {
     return;
   }
 
-  var headers = ['Branch/Plant', 'Item', 'Tipo de transacción', 'Cantidad', 'Unidad de medida'];
+  var headers = ['Branch/Plant', 'Item', 'Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Documento', 'Fecha'];
   var rows = lastDetailRows.map(function (row) {
     return [
       normalizeBranch(row[FIELD_BRANCH]),
       row[FIELD_ITEM],
       row[FIELD_TRX_DESC],
       (Number(row[FIELD_QTY]) || 0) / QTY_DIVISOR,
-      row[FIELD_UM]
+      row[FIELD_UM],
+      row[FIELD_DOCUMENT],
+      julianToDate(row[FIELD_FECHA])
     ];
   });
 
