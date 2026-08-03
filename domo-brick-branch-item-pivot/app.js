@@ -106,20 +106,25 @@ function generatePivot() {
     setStatus('Selecciona un Branch/Plant.');
     return;
   }
-  if (items.length === 0) {
-    setStatus('Escribe al menos un Item.');
-    return;
-  }
 
   setStatus('');
   clearTable();
   renderDetail([], null);
   showLoading(true);
 
-  // Solo se filtra por Item en el servidor: bastantes registros traen
-  // Branch/Plant en blanco (equivalen al branch DEFAULT_BRANCH), así que
-  // filtrar por branch en el servidor los dejaría fuera. El branch se
-  // aplica después, en el navegador, ya con el valor por defecto asignado.
+  if (items.length > 0) {
+    generatePivotByItem(branches, items);
+  } else {
+    // Sin Item: se calcula TODO lo de la planta seleccionada.
+    generatePivotByBranchOnly(branches);
+  }
+}
+
+// Con Item(s): se filtra solo por Item en el servidor (bastantes registros
+// traen Branch/Plant en blanco, equivalen al branch DEFAULT_BRANCH, así
+// que filtrar por branch en el servidor los dejaría fuera). El branch se
+// aplica después, en el navegador, ya con el valor por defecto asignado.
+function generatePivotByItem(branches, items) {
   var filter = buildFieldFilter(FIELD_ITEM, items);
 
   fetchAllFilteredRows(filter, function (rows) {
@@ -127,19 +132,44 @@ function generatePivot() {
     var matchingRows = rows.filter(function (row) {
       return branchSet[normalizeBranch(row[FIELD_BRANCH])];
     });
+    finishPivot(matchingRows);
+  }, handlePivotError);
+}
 
-    lastMatchingRows = matchingRows;
-    lastPivotRows = aggregateRows(matchingRows);
-    lastDetailRows = [];
+// Sin Item: no se puede pedir el dataset completo sin filtro (son millones
+// de filas), así que aquí sí se filtra por Branch/Plant en el servidor. Si
+// el grupo elegido incluye DEFAULT_BRANCH, se trae aparte también lo que
+// venga con Branch/Plant en blanco (cuenta como DEFAULT_BRANCH).
+function generatePivotByBranchOnly(branches) {
+  var filter = buildFieldFilter(FIELD_BRANCH, branches);
 
-    renderPivot(lastPivotRows);
-    renderDetail([], null);
-    showLoading(false);
-  }, function (err) {
-    logError('Error generando el pivote', err);
-    setStatus('No se pudo generar el pivote. ' + describeError(err));
-    showLoading(false);
-  });
+  fetchAllFilteredRows(filter, function (rowsWithBranch) {
+    if (branches.indexOf(DEFAULT_BRANCH) === -1) {
+      finishPivot(rowsWithBranch);
+      return;
+    }
+
+    var blankFilter = buildFieldFilter(FIELD_BRANCH, ['']);
+    fetchAllFilteredRows(blankFilter, function (blankRows) {
+      finishPivot(rowsWithBranch.concat(blankRows));
+    }, handlePivotError);
+  }, handlePivotError);
+}
+
+function finishPivot(matchingRows) {
+  lastMatchingRows = matchingRows;
+  lastPivotRows = aggregateRows(matchingRows);
+  lastDetailRows = [];
+
+  renderPivot(lastPivotRows);
+  renderDetail([], null);
+  showLoading(false);
+}
+
+function handlePivotError(err) {
+  logError('Error generando el pivote', err);
+  setStatus('No se pudo generar el pivote. ' + describeError(err));
+  showLoading(false);
 }
 
 // Blanco/vacío -> DEFAULT_BRANCH; si no, el valor tal cual (sin espacios).
