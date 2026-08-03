@@ -224,11 +224,17 @@ function generatePivot() {
   renderDetail([], null);
   showLoading(true);
 
+  // Tipo de documento y rango de fechas se mandan YA en el filtro del
+  // servidor (antes se traían todas las filas y se filtraban en el
+  // navegador, lo que en una planta completa podía significar más de un
+  // millón de filas para acabar quedándose con un par de miles).
+  var extraFilters = buildExtraFilters();
+
   if (items.length > 0) {
-    generatePivotByItem(branches, items);
+    generatePivotByItem(branches, items, extraFilters);
   } else {
     // Sin Item: se calcula TODO lo de la planta seleccionada.
-    generatePivotByBranchOnly(branches);
+    generatePivotByBranchOnly(branches, extraFilters);
   }
 }
 
@@ -236,8 +242,8 @@ function generatePivot() {
 // traen Branch/Plant en blanco, equivalen al branch DEFAULT_BRANCH, así
 // que filtrar por branch en el servidor los dejaría fuera). El branch se
 // aplica después, en el navegador, ya con el valor por defecto asignado.
-function generatePivotByItem(branches, items) {
-  var filter = buildFieldFilter(FIELD_ITEM, items);
+function generatePivotByItem(branches, items, extraFilters) {
+  var filter = combineFilters(buildFieldFilter(FIELD_ITEM, items), extraFilters);
 
   fetchAllFilteredRows(filter, function (rows) {
     var branchSet = toSet(branches);
@@ -252,8 +258,8 @@ function generatePivotByItem(branches, items) {
 // de filas), así que aquí sí se filtra por Branch/Plant en el servidor. Si
 // el grupo elegido incluye DEFAULT_BRANCH, se trae aparte también lo que
 // venga con Branch/Plant en blanco (cuenta como DEFAULT_BRANCH).
-function generatePivotByBranchOnly(branches) {
-  var filter = buildFieldFilter(FIELD_BRANCH, branches);
+function generatePivotByBranchOnly(branches, extraFilters) {
+  var filter = combineFilters(buildFieldFilter(FIELD_BRANCH, branches), extraFilters);
 
   fetchAllFilteredRows(filter, function (rowsWithBranch) {
     if (branches.indexOf(DEFAULT_BRANCH) === -1) {
@@ -261,17 +267,42 @@ function generatePivotByBranchOnly(branches) {
       return;
     }
 
-    var blankFilter = buildFieldFilter(FIELD_BRANCH, ['']);
+    var blankFilter = combineFilters(buildFieldFilter(FIELD_BRANCH, ['']), extraFilters);
     fetchAllFilteredRows(blankFilter, function (blankRows) {
       finishPivot(rowsWithBranch.concat(blankRows));
     }, handlePivotError);
   }, handlePivotError);
 }
 
-function finishPivot(matchingRows) {
-  matchingRows = applyDateRange(matchingRows);
-  matchingRows = applyDocTypeFilter(matchingRows);
+// Junta el filtro de Tipo de documento (=) y de rango de fechas (>=, <=)
+// -si están definidos- para agregarlos al filtro base con combineFilters().
+function buildExtraFilters() {
+  var parts = [];
 
+  var docType = getSelectedDocType();
+  if (docType) {
+    parts.push(buildFieldFilter(FIELD_DOC_TYPE, [docType]));
+  }
+
+  var fromJulian = dateFromInput.value ? dateToJulian(dateFromInput.value) : null;
+  var toJulian = dateToInput.value ? dateToJulian(dateToInput.value) : null;
+  if (fromJulian !== null) {
+    parts.push(FIELD_FECHA + '>=' + fromJulian);
+  }
+  if (toJulian !== null) {
+    parts.push(FIELD_FECHA + '<=' + toJulian);
+  }
+
+  return parts;
+}
+
+// Varias condiciones se unen con COMA (equivale a AND), igual que en
+// buildFieldFilter.
+function combineFilters(baseFilter, extraParts) {
+  return [baseFilter].concat(extraParts).join(',');
+}
+
+function finishPivot(matchingRows) {
   lastMatchingRows = matchingRows;
   lastPivotRows = aggregateRows(matchingRows);
   lastDetailRows = [];
@@ -285,35 +316,6 @@ function handlePivotError(err) {
   logError('Error generando el pivote', err);
   setStatus('No se pudo generar el pivote. ' + describeError(err));
   showLoading(false);
-}
-
-// El rango de fechas se aplica en el navegador (no en el filtro del
-// servidor) porque ya se tiene iltrdj en cada fila traída. Si no se elige
-// ninguna fecha, regresa todo sin tocar nada.
-function applyDateRange(rows) {
-  var fromJulian = dateFromInput.value ? dateToJulian(dateFromInput.value) : null;
-  var toJulian = dateToInput.value ? dateToJulian(dateToInput.value) : null;
-
-  if (fromJulian === null && toJulian === null) {
-    return rows;
-  }
-
-  return rows.filter(function (row) {
-    var julian = Number(row[FIELD_FECHA]);
-    if (isNaN(julian)) return false;
-    if (fromJulian !== null && julian < fromJulian) return false;
-    if (toJulian !== null && julian > toJulian) return false;
-    return true;
-  });
-}
-
-// Ninguno seleccionado -> regresa todo sin tocar nada.
-function applyDocTypeFilter(rows) {
-  var docType = getSelectedDocType();
-  if (!docType) return rows;
-  return rows.filter(function (row) {
-    return row[FIELD_DOC_TYPE] === docType;
-  });
 }
 
 // Convierte 'YYYY-MM-DD' (valor de <input type="date">) al entero juliano
