@@ -47,6 +47,8 @@ var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
 
 var branchCheckboxes = document.getElementById('branchCheckboxes');
 var itemInput = document.getElementById('itemInput');
+var dateFromInput = document.getElementById('dateFromInput');
+var dateToInput = document.getElementById('dateToInput');
 var btnGenerar = document.getElementById('btnGenerar');
 var btnLimpiar = document.getElementById('btnLimpiar');
 var btnExportPivot = document.getElementById('btnExportPivot');
@@ -157,6 +159,8 @@ function generatePivotByBranchOnly(branches) {
 }
 
 function finishPivot(matchingRows) {
+  matchingRows = applyDateRange(matchingRows);
+
   lastMatchingRows = matchingRows;
   lastPivotRows = aggregateRows(matchingRows);
   lastDetailRows = [];
@@ -170,6 +174,48 @@ function handlePivotError(err) {
   logError('Error generando el pivote', err);
   setStatus('No se pudo generar el pivote. ' + describeError(err));
   showLoading(false);
+}
+
+// El rango de fechas se aplica en el navegador (no en el filtro del
+// servidor) porque ya se tiene iltrdj en cada fila traída. Si no se elige
+// ninguna fecha, regresa todo sin tocar nada.
+function applyDateRange(rows) {
+  var fromJulian = dateFromInput.value ? dateToJulian(dateFromInput.value) : null;
+  var toJulian = dateToInput.value ? dateToJulian(dateToInput.value) : null;
+
+  if (fromJulian === null && toJulian === null) {
+    return rows;
+  }
+
+  return rows.filter(function (row) {
+    var julian = Number(row[FIELD_FECHA]);
+    if (isNaN(julian)) return false;
+    if (fromJulian !== null && julian < fromJulian) return false;
+    if (toJulian !== null && julian > toJulian) return false;
+    return true;
+  });
+}
+
+// Convierte 'YYYY-MM-DD' (valor de <input type="date">) al entero juliano
+// estilo JDE CYYDDD, para poder comparar contra iltrdj sin re-formatear
+// cada fila. Es el inverso de julianToDate().
+function dateToJulian(isoDate) {
+  var parts = isoDate.split('-');
+  if (parts.length !== 3) return null;
+
+  var year = parseInt(parts[0], 10);
+  var month = parseInt(parts[1], 10);
+  var day = parseInt(parts[2], 10);
+  if (!year || !month || !day) return null;
+
+  var startOfYear = new Date(year, 0, 1);
+  var target = new Date(year, month - 1, day);
+  var dayOfYear = Math.round((target - startOfYear) / 86400000) + 1;
+
+  var century = Math.floor(year / 100) - 19; // 1900s -> 0, 2000s -> 1
+  var yy = year % 100;
+
+  return (century * 100000) + (yy * 1000) + dayOfYear;
 }
 
 // Blanco/vacío -> DEFAULT_BRANCH; si no, el valor tal cual (sin espacios).
@@ -547,6 +593,8 @@ function resetAll() {
   var checked = branchCheckboxes.querySelectorAll('.branch-radio:checked');
   Array.prototype.forEach.call(checked, function (chk) { chk.checked = false; });
   itemInput.value = '';
+  dateFromInput.value = '';
+  dateToInput.value = '';
   clearTable();
   renderDetail([], null);
   lastMatchingRows = [];
