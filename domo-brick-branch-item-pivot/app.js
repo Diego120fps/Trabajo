@@ -12,6 +12,7 @@ var FIELD_QTY = 'iltrqt';      // Cantidad de la transacción (se divide entre 1
 var FIELD_UM = 'iltrum';       // Unidad de medida
 var FIELD_DOCUMENT = 'ildoc';  // Documento
 var FIELD_FECHA = 'iltrdj';    // Fecha (formato juliano JDE: CYYDDD)
+var FIELD_DOC_TYPE = 'ildct';  // Tipo de documento (radios dinámicos)
 
 var QTY_DIVISOR = 10000;
 
@@ -45,7 +46,13 @@ BRANCH_GROUPS.forEach(function (group) {
 var PAGE_SIZE = 5000;
 var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
 
+// Para consultas de valores distintos (groupby sin sumar nada, ej. tipos de
+// documento de una planta) el resultado es chico: no hace falta paginar,
+// solo pedir un límite alto para no toparse con el límite por defecto.
+var DISTINCT_LIMIT = 100000;
+
 var branchCheckboxes = document.getElementById('branchCheckboxes');
+var docTypeCheckboxes = document.getElementById('docTypeCheckboxes');
 var itemInput = document.getElementById('itemInput');
 var dateFromInput = document.getElementById('dateFromInput');
 var dateToInput = document.getElementById('dateToInput');
@@ -72,6 +79,7 @@ function init() {
   btnLimpiar.addEventListener('click', resetAll);
   btnExportPivot.addEventListener('click', exportPivotToExcel);
   btnExportDetail.addEventListener('click', exportDetailToExcel);
+  branchCheckboxes.addEventListener('change', onBranchSelectionChange);
 
   renderBranchRadios();
   renderDetail([], null);
@@ -96,6 +104,108 @@ function renderBranchRadios() {
 
     branchCheckboxes.appendChild(label);
   });
+}
+
+// ---------- Tipo de documento: radios dinámicos según la planta elegida ----------
+
+function onBranchSelectionChange(e) {
+  if (!e.target.classList.contains('branch-radio')) return;
+  loadDocTypesForSelectedBranch();
+}
+
+function loadDocTypesForSelectedBranch() {
+  var branches = getSelectedBranches();
+
+  docTypeCheckboxes.innerHTML = '<span class="hint">Cargando...</span>';
+
+  if (branches.length === 0) {
+    docTypeCheckboxes.innerHTML = '<span class="hint">Selecciona un Branch/Plant primero</span>';
+    return;
+  }
+
+  fetchDistinctForBranches(FIELD_DOC_TYPE, branches, function (values) {
+    renderDocTypeRadios(values);
+  }, function (err) {
+    logError('Error cargando tipos de documento', err);
+    docTypeCheckboxes.innerHTML = '<span class="hint">No se pudieron cargar los tipos de documento.</span>';
+  });
+}
+
+// Trae los valores distintos de "field" para los códigos de branch dados;
+// si el grupo incluye DEFAULT_BRANCH, también junta lo que venga con
+// Branch/Plant en blanco (misma lógica que el pivote sin Item).
+function fetchDistinctForBranches(field, branches, onDone, onError) {
+  var filter = buildFieldFilter(FIELD_BRANCH, branches);
+
+  domo.get(buildDistinctQuery(field, filter))
+    .then(function (data) {
+      if (branches.indexOf(DEFAULT_BRANCH) === -1) {
+        onDone(distinctValues(data, field));
+        return;
+      }
+
+      var blankFilter = buildFieldFilter(FIELD_BRANCH, ['']);
+      domo.get(buildDistinctQuery(field, blankFilter))
+        .then(function (blankData) {
+          onDone(distinctValues((data || []).concat(blankData || []), field));
+        })
+        .catch(onError);
+    })
+    .catch(onError);
+}
+
+function buildDistinctQuery(field, filter) {
+  return '/data/v1/' + datasetId +
+    '?fields=' + field +
+    '&groupby=' + field +
+    '&filter=' + filter +
+    '&orderby=' + field +
+    '&limit=' + DISTINCT_LIMIT;
+}
+
+function distinctValues(rows, field) {
+  var seen = {};
+  var values = [];
+  (rows || []).forEach(function (row) {
+    var v = row[field];
+    if (v === null || v === undefined || v === '') return;
+    if (!seen[v]) {
+      seen[v] = true;
+      values.push(v);
+    }
+  });
+  values.sort();
+  return values;
+}
+
+function renderDocTypeRadios(values) {
+  docTypeCheckboxes.innerHTML = '';
+
+  if (values.length === 0) {
+    docTypeCheckboxes.innerHTML = '<span class="hint">No se encontraron tipos de documento.</span>';
+    return;
+  }
+
+  values.forEach(function (value) {
+    var label = document.createElement('label');
+
+    var radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'docTypeRadio';
+    radio.value = value;
+    radio.className = 'doctype-radio';
+
+    label.appendChild(radio);
+    label.appendChild(document.createTextNode(value));
+
+    docTypeCheckboxes.appendChild(label);
+  });
+}
+
+// Ninguno marcado -> null (sin filtrar, se calcula todo).
+function getSelectedDocType() {
+  var checked = docTypeCheckboxes.querySelector('.doctype-radio:checked');
+  return checked ? checked.value : null;
 }
 
 // ---------- Paso 2: generar el pivote filtrando por Branch/Plant + Item(s) ----------
@@ -160,6 +270,7 @@ function generatePivotByBranchOnly(branches) {
 
 function finishPivot(matchingRows) {
   matchingRows = applyDateRange(matchingRows);
+  matchingRows = applyDocTypeFilter(matchingRows);
 
   lastMatchingRows = matchingRows;
   lastPivotRows = aggregateRows(matchingRows);
@@ -193,6 +304,15 @@ function applyDateRange(rows) {
     if (fromJulian !== null && julian < fromJulian) return false;
     if (toJulian !== null && julian > toJulian) return false;
     return true;
+  });
+}
+
+// Ninguno seleccionado -> regresa todo sin tocar nada.
+function applyDocTypeFilter(rows) {
+  var docType = getSelectedDocType();
+  if (!docType) return rows;
+  return rows.filter(function (row) {
+    return row[FIELD_DOC_TYPE] === docType;
   });
 }
 
@@ -234,7 +354,7 @@ function toSet(values) {
 // (sin groupby), acumulándolas hasta que una página regresa menos filas
 // de las pedidas (fin de los datos).
 function fetchAllFilteredRows(filter, onDone, onError) {
-  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY, FIELD_DOCUMENT, FIELD_FECHA];
+  var fields = [FIELD_BRANCH, FIELD_ITEM, FIELD_TRX_DESC, FIELD_UM, FIELD_QTY, FIELD_DOCUMENT, FIELD_FECHA, FIELD_DOC_TYPE];
   var collected = [];
   var offset = 0;
   var page = 0;
@@ -592,6 +712,7 @@ function showLoading(show) {
 function resetAll() {
   var checked = branchCheckboxes.querySelectorAll('.branch-radio:checked');
   Array.prototype.forEach.call(checked, function (chk) { chk.checked = false; });
+  docTypeCheckboxes.innerHTML = '<span class="hint">Selecciona un Branch/Plant primero</span>';
   itemInput.value = '';
   dateFromInput.value = '';
   dateToInput.value = '';
