@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Clear to Build</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="buInput">Business Unit / Plant</label>
+        <input type="text" id="buInput" list="buList" placeholder="Ej: M30" />
+        <datalist id="buList"></datalist>
+        <span class="hint">Filtra Inventario, OPOR y Consumos (igual que @bu en el SP)</span>
+      </div>
+
+      <div class="filter-group">
+        <label for="searchInput">Buscar componente / FG</label>
+        <input type="text" id="searchInput" placeholder="Filtra la tabla de resultados" />
+      </div>
+
+      <div class="filter-actions">
+        <button id="btnGenerar">Generar CTB</button>
+        <button id="btnLimpiar" class="secondary">Limpiar</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+    <div id="summary" class="summary"></div>
+
+    <div class="section-header">
+      <h3>Clear to Build</h3>
+      <button id="btnExport" class="secondary small">Exportar a Excel</button>
+    </div>
+    <div class="table-wrapper">
+      <table id="resultTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
