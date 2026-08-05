@@ -405,7 +405,8 @@ function fetchAllFilteredRows(filter, onDone, onError) {
   fetchPage();
 }
 
-// Agrupa por tipo de transacción + unidad de medida, sumando cantidad y costo.
+// Agrupa por tipo de transacción + unidad de medida, sumando cantidad y
+// costo, y contando documentos (ildoc) únicos por grupo.
 function aggregateRows(rows) {
   var pivotMap = {};
 
@@ -416,11 +417,19 @@ function aggregateRows(rows) {
         trx: row[FIELD_TRX_DESC],
         um: row[FIELD_UM],
         qty: 0,
-        cost: 0
+        cost: 0,
+        docSeen: {},
+        docCount: 0
       };
     }
     pivotMap[key].qty += Number(row[FIELD_QTY]) || 0;
     pivotMap[key].cost += Number(row[FIELD_COST]) || 0;
+
+    var doc = row[FIELD_DOCUMENT];
+    if (doc !== null && doc !== undefined && doc !== '' && !pivotMap[key].docSeen[doc]) {
+      pivotMap[key].docSeen[doc] = true;
+      pivotMap[key].docCount += 1;
+    }
   });
 
   var pivotRows = Object.keys(pivotMap).map(function (key) {
@@ -440,7 +449,7 @@ function renderPivot(pivotRows) {
   tbody.innerHTML = '';
 
   var headerRow = document.createElement('tr');
-  ['Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Costo'].forEach(function (text) {
+  ['Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Documento', 'Costo'].forEach(function (text) {
     var th = document.createElement('th');
     th.textContent = text;
     headerRow.appendChild(th);
@@ -450,7 +459,7 @@ function renderPivot(pivotRows) {
   if (!pivotRows || pivotRows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
-    td.colSpan = 4;
+    td.colSpan = 5;
     td.className = 'empty-cell';
     td.textContent = 'Sin datos para la selección actual.';
     emptyRow.appendChild(td);
@@ -475,6 +484,11 @@ function renderPivot(pivotRows) {
     var tdUm = document.createElement('td');
     tdUm.textContent = row.um;
     tr.appendChild(tdUm);
+
+    var tdDocCount = document.createElement('td');
+    tdDocCount.className = 'numeric';
+    tdDocCount.textContent = row.docCount.toLocaleString('es-MX');
+    tr.appendChild(tdDocCount);
 
     var tdCost = document.createElement('td');
     tdCost.className = 'numeric';
@@ -598,9 +612,9 @@ function exportPivotToExcel() {
     return;
   }
 
-  var headers = ['Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Costo'];
+  var headers = ['Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Documento', 'Costo'];
   var rows = lastPivotRows.map(function (row) {
-    return [row.trx, row.qty / QTY_DIVISOR, row.um, row.cost / COST_DIVISOR];
+    return [row.trx, row.qty / QTY_DIVISOR, row.um, row.docCount, row.cost / COST_DIVISOR];
   });
 
   downloadCSV('pivote.csv', toCSV(headers, rows));
