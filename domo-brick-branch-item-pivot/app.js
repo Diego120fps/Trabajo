@@ -133,27 +133,26 @@ function loadDocTypesForSelectedBranch() {
   });
 }
 
-// Trae los valores distintos de "field" para los códigos de branch dados;
-// si el grupo incluye DEFAULT_BRANCH, también junta lo que venga con
-// Branch/Plant en blanco (misma lógica que el pivote sin Item).
+// Trae los valores distintos de "field" para los códigos de branch dados
+// (una consulta por código); si el grupo incluye DEFAULT_BRANCH, también
+// junta lo que venga con Branch/Plant en blanco (misma lógica que el
+// pivote sin Item).
 function fetchDistinctForBranches(field, branches, onDone, onError) {
-  var filter = buildFieldFilter(FIELD_BRANCH, branches);
+  fetchForEachValue(FIELD_BRANCH, branches, function (branchFilter, onDoneOne, onErrorOne) {
+    domo.get(buildDistinctQuery(field, branchFilter)).then(onDoneOne).catch(onErrorOne);
+  }, function (rowsFromCodes) {
+    if (branches.indexOf(DEFAULT_BRANCH) === -1) {
+      onDone(distinctValues(rowsFromCodes, field));
+      return;
+    }
 
-  domo.get(buildDistinctQuery(field, filter))
-    .then(function (data) {
-      if (branches.indexOf(DEFAULT_BRANCH) === -1) {
-        onDone(distinctValues(data, field));
-        return;
-      }
-
-      var blankFilter = buildFieldFilter(FIELD_BRANCH, ['']);
-      domo.get(buildDistinctQuery(field, blankFilter))
-        .then(function (blankData) {
-          onDone(distinctValues((data || []).concat(blankData || []), field));
-        })
-        .catch(onError);
-    })
-    .catch(onError);
+    var blankFilter = buildFieldFilter(FIELD_BRANCH, '');
+    domo.get(buildDistinctQuery(field, blankFilter))
+      .then(function (blankData) {
+        onDone(distinctValues(rowsFromCodes.concat(blankData || []), field));
+      })
+      .catch(onError);
+  }, onError);
 }
 
 function buildDistinctQuery(field, filter) {
@@ -240,14 +239,15 @@ function generatePivot() {
   }
 }
 
-// Con Item(s): se filtra solo por Item en el servidor (bastantes registros
-// traen Branch/Plant en blanco, equivalen al branch DEFAULT_BRANCH, así
-// que filtrar por branch en el servidor los dejaría fuera). El branch se
-// aplica después, en el navegador, ya con el valor por defecto asignado.
+// Con Item(s): se filtra solo por Item en el servidor (una consulta por
+// Item, bastantes registros traen Branch/Plant en blanco, equivalen al
+// branch DEFAULT_BRANCH, así que filtrar por branch en el servidor los
+// dejaría fuera). El branch se aplica después, en el navegador, ya con el
+// valor por defecto asignado.
 function generatePivotByItem(branches, items, extraFilters) {
-  var filter = combineFilters(buildFieldFilter(FIELD_ITEM, items), extraFilters);
-
-  fetchAllFilteredRows(filter, function (rows) {
+  fetchForEachValue(FIELD_ITEM, items, function (itemFilter, onDoneOne, onErrorOne) {
+    fetchAllFilteredRows(combineFilters(itemFilter, extraFilters), onDoneOne, onErrorOne);
+  }, function (rows) {
     var branchSet = toSet(branches);
     var matchingRows = rows.filter(function (row) {
       return branchSet[normalizeBranch(row[FIELD_BRANCH])];
@@ -257,19 +257,20 @@ function generatePivotByItem(branches, items, extraFilters) {
 }
 
 // Sin Item: no se puede pedir el dataset completo sin filtro (son millones
-// de filas), así que aquí sí se filtra por Branch/Plant en el servidor. Si
-// el grupo elegido incluye DEFAULT_BRANCH, se trae aparte también lo que
-// venga con Branch/Plant en blanco (cuenta como DEFAULT_BRANCH).
+// de filas), así que aquí sí se filtra por Branch/Plant en el servidor
+// (una consulta por código). Si el grupo elegido incluye DEFAULT_BRANCH,
+// se trae aparte también lo que venga con Branch/Plant en blanco (cuenta
+// como DEFAULT_BRANCH).
 function generatePivotByBranchOnly(branches, extraFilters) {
-  var filter = combineFilters(buildFieldFilter(FIELD_BRANCH, branches), extraFilters);
-
-  fetchAllFilteredRows(filter, function (rowsWithBranch) {
+  fetchForEachValue(FIELD_BRANCH, branches, function (branchFilter, onDoneOne, onErrorOne) {
+    fetchAllFilteredRows(combineFilters(branchFilter, extraFilters), onDoneOne, onErrorOne);
+  }, function (rowsWithBranch) {
     if (branches.indexOf(DEFAULT_BRANCH) === -1) {
       finishPivot(rowsWithBranch);
       return;
     }
 
-    var blankFilter = combineFilters(buildFieldFilter(FIELD_BRANCH, ['']), extraFilters);
+    var blankFilter = combineFilters(buildFieldFilter(FIELD_BRANCH, ''), extraFilters);
     fetchAllFilteredRows(blankFilter, function (blankRows) {
       finishPivot(rowsWithBranch.concat(blankRows));
     }, handlePivotError);
@@ -283,7 +284,7 @@ function buildExtraFilters() {
 
   var docType = getSelectedDocType();
   if (docType) {
-    parts.push(buildFieldFilter(FIELD_DOC_TYPE, [docType]));
+    parts.push(buildFieldFilter(FIELD_DOC_TYPE, docType));
   }
 
   var fromJulian = dateFromInput.value ? dateToJulian(dateFromInput.value) : null;
@@ -404,7 +405,7 @@ function fetchAllFilteredRows(filter, onDone, onError) {
   fetchPage();
 }
 
-// Agrupa por tipo de transacción + unidad de medida, sumando la cantidad.
+// Agrupa por tipo de transacción + unidad de medida, sumando cantidad y costo.
 function aggregateRows(rows) {
   var pivotMap = {};
 
@@ -414,10 +415,12 @@ function aggregateRows(rows) {
       pivotMap[key] = {
         trx: row[FIELD_TRX_DESC],
         um: row[FIELD_UM],
-        qty: 0
+        qty: 0,
+        cost: 0
       };
     }
     pivotMap[key].qty += Number(row[FIELD_QTY]) || 0;
+    pivotMap[key].cost += Number(row[FIELD_COST]) || 0;
   });
 
   var pivotRows = Object.keys(pivotMap).map(function (key) {
@@ -437,7 +440,7 @@ function renderPivot(pivotRows) {
   tbody.innerHTML = '';
 
   var headerRow = document.createElement('tr');
-  ['Tipo de transacción', 'Cantidad', 'Unidad de medida'].forEach(function (text) {
+  ['Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Costo'].forEach(function (text) {
     var th = document.createElement('th');
     th.textContent = text;
     headerRow.appendChild(th);
@@ -447,7 +450,7 @@ function renderPivot(pivotRows) {
   if (!pivotRows || pivotRows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
-    td.colSpan = 3;
+    td.colSpan = 4;
     td.className = 'empty-cell';
     td.textContent = 'Sin datos para la selección actual.';
     emptyRow.appendChild(td);
@@ -458,6 +461,7 @@ function renderPivot(pivotRows) {
   pivotRows.forEach(function (row) {
     var tr = document.createElement('tr');
     var qty = row.qty / QTY_DIVISOR;
+    var cost = row.cost / COST_DIVISOR;
 
     var tdDesc = document.createElement('td');
     tdDesc.textContent = row.trx;
@@ -471,6 +475,11 @@ function renderPivot(pivotRows) {
     var tdUm = document.createElement('td');
     tdUm.textContent = row.um;
     tr.appendChild(tdUm);
+
+    var tdCost = document.createElement('td');
+    tdCost.className = 'numeric';
+    tdCost.textContent = cost.toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    tr.appendChild(tdCost);
 
     tr.addEventListener('click', function () {
       Array.prototype.forEach.call(tbody.querySelectorAll('tr'), function (r) {
@@ -589,9 +598,9 @@ function exportPivotToExcel() {
     return;
   }
 
-  var headers = ['Tipo de transacción', 'Cantidad', 'Unidad de medida'];
+  var headers = ['Tipo de transacción', 'Cantidad', 'Unidad de medida', 'Costo'];
   var rows = lastPivotRows.map(function (row) {
-    return [row.trx, row.qty / QTY_DIVISOR, row.um];
+    return [row.trx, row.qty / QTY_DIVISOR, row.um, row.cost / COST_DIVISOR];
   });
 
   downloadCSV('pivote.csv', toCSV(headers, rows));
@@ -669,16 +678,34 @@ function getItemsFromInput() {
     .filter(function (v) { return v.length > 0; });
 }
 
-// Un solo valor -> field='valor'. Varios valores -> field in ('a','b',...).
-// Sin paréntesis extra ni "or": esa es la sintaxis real de la Data API.
-function buildFieldFilter(field, values) {
-  var escaped = values.map(function (v) {
-    return "'" + String(v).replace(/'/g, "''") + "'";
-  });
-  if (escaped.length === 1) {
-    return field + '=' + escaped[0];
+// field='valor', con la comilla simple escapada.
+function buildFieldFilter(field, value) {
+  return field + "='" + String(value).replace(/'/g, "''") + "'";
+}
+
+// El operador "in (...)" de la Data API no se comportó de forma confiable
+// con más de un valor (fallaba al cargar Tipo de documento para plantas
+// con 2 códigos de Branch/Plant, ej. Plataforma = 1221+2300). En su lugar,
+// se hace UNA consulta por cada valor (siempre con "=", que sí funciona) y
+// se juntan los resultados con fetchOne(filtro, onDoneUno, onErrorUno).
+function fetchForEachValue(field, values, fetchOne, onDone, onError) {
+  var results = [];
+  var index = 0;
+
+  function next() {
+    if (index >= values.length) {
+      onDone(results);
+      return;
+    }
+    var filter = buildFieldFilter(field, values[index]);
+    fetchOne(filter, function (rows) {
+      results = results.concat(rows || []);
+      index += 1;
+      next();
+    }, onError);
   }
-  return field + ' in (' + escaped.join(',') + ')';
+
+  next();
 }
 
 // Extrae un mensaje legible del error que devuelve domo.get (puede ser un
