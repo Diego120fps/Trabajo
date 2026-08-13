@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SKU - Comentarios</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="searchInput">Buscar</label>
+        <input type="text" id="searchInput" placeholder="Buscar por SKU o Categoría" />
+      </div>
+      <div class="filter-actions">
+        <button id="btnRefrescar" class="secondary">Refrescar tabla</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div class="main-area">
+      <div class="grid-area">
+        <div class="section-header">
+          <h3>Datos</h3>
+          <span class="hint" id="rowCountHint"></span>
+        </div>
+        <span class="hint">Da clic en una fila para agregar o revisar comentarios</span>
+        <div class="table-wrapper">
+          <table id="dataTable">
+            <thead></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="sidePanel" class="side-panel">
+        <div class="side-panel-header">
+          <h3>Comentario</h3>
+          <button id="btnCerrarPanel" class="icon-btn" title="Cerrar">&times;</button>
+        </div>
+
+        <div id="panelEmpty" class="panel-empty">
+          Selecciona una fila de la tabla para agregar un comentario.
+        </div>
+
+        <div id="panelContent" class="panel-content" style="display:none;">
+          <div class="form-field">
+            <label>SKU</label>
+            <input type="text" id="formSku" readonly />
+          </div>
+
+          <div class="form-field">
+            <label>Categoría</label>
+            <input type="text" id="formCategoria" readonly />
+          </div>
+
+          <div class="form-field">
+            <label for="formIssue">Issue</label>
+            <select id="formIssue">
+              <option value="">Selecciona un issue...</option>
+            </select>
+          </div>
+
+          <div class="form-field">
+            <label for="formComentario">Comentario</label>
+            <textarea id="formComentario" rows="4" placeholder="Escribe el comentario..."></textarea>
+          </div>
+
+          <div id="formStatus" class="status-msg"></div>
+
+          <div class="form-actions">
+            <button id="btnGuardar">Guardar comentario</button>
+          </div>
+
+          <div class="section-header history-header">
+            <h4>Historial</h4>
+          </div>
+          <div id="historyList" class="history-list">
+            <span class="hint">Sin comentarios previos.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
