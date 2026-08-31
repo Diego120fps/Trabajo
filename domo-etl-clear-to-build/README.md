@@ -35,8 +35,12 @@ parámetro en vivo.
   si vienen como texto en otro formato, puede que necesites `STR_TO_DATE` en
   vez de `CAST`.
 - **`GROUP_CONCAT`**: es sintaxis MySQL (el tile SQL de Magic ETL es
-  MySQL-flavor). Si tu instancia usa el motor Redshift-flavor, cambia a
-  `LISTAGG(DISTINCT Modelo, ', ') WITHIN GROUP (ORDER BY Modelo)`.
+  MySQL-flavor), pero el parser del tile **no soporta el `ORDER BY` opcional
+  dentro de `GROUP_CONCAT`** (da "Syntax error in expression" apuntando a
+  `ORDER`) — por eso `ctb.sql` usa `GROUP_CONCAT(DISTINCT col SEPARATOR ', ')`
+  sin ordenar el texto concatenado. Si tu instancia usa el motor
+  Redshift-flavor y `GROUP_CONCAT` tampoco corre ahí, cambia a
+  `LISTAGG(DISTINCT PARENT_ITEM, ', ')`.
 - **Tamaño del `CROSS JOIN`**: `base` cruza cada BU distinto (tabla
   `bu_list`, viene de Inventario) contra cada fila de `demand`
   (Component × Fecha). Con pocos BUs (plantas) esto es manejable; si tienes
