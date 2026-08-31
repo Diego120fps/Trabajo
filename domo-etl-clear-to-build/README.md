@@ -46,6 +46,44 @@ parámetro en vivo.
   filtra por planta — la misma demanda total se descuenta del inventario de
   cada BU por separado. Si esto no es el comportamiento de negocio deseado
   (y solo era así en el SP por conveniencia), avisa para ajustar el join.
+- **Nombres de Plan**: asumí que la columna que hace match contra
+  `BOM.FINISHED_GOOD_ITEM_NUMBER` es `PARENT_ITEM` y que la fecha es
+  `PO_DATE_REQUESTED`. Si el campo de join real tiene otro nombre distinto
+  al de FG mostrado en pantalla, dímelo para separarlos.
+
+### BOM multinivel (sin recursión real)
+
+El BOM puede ser multinivel: un componente puede a su vez ser un
+subensamble con su propio BOM. El tile SQL de Magic ETL **no soporta
+`WITH RECURSIVE` de forma confiable** (hay un bug reportado en el foro de
+Domo), así que `bom_flat` desenrolla el BOM con auto-joins encadenados en
+vez de recursión real, cubriendo hasta **8 niveles** por defecto. Un
+componente que aparece en más de un nivel/camino para el mismo FG suma sus
+cantidades (explosión estándar de BOM).
+
+- Si tu BOM real tiene más de 8 niveles, copia el patrón del último bloque
+  `UNION ALL` y agrega `b9`, `b10`, etc.
+- Para validar que 8 niveles alcanzan, corre esta consulta contra tu BOM
+  real (fuera del tile, en cualquier cliente SQL o en un tile de prueba):
+  encuentra el nivel más profundo contando cuántas veces se puede
+  encadenar `COMPONENT_ITEM_NUMBER -> FINISHED_GOOD_ITEM_NUMBER` antes de
+  quedarse sin matches. Si tienes acceso a SQL Server, una recursive CTE
+  ahí sí funciona y es la forma más simple de medir la profundidad real:
+  ```sql
+  WITH depth AS (
+    SELECT FINISHED_GOOD_ITEM_NUMBER, COMPONENT_ITEM_NUMBER, 1 AS lvl
+    FROM Domo_BillOfMaterial
+    UNION ALL
+    SELECT b.FINISHED_GOOD_ITEM_NUMBER, b.COMPONENT_ITEM_NUMBER, d.lvl + 1
+    FROM Domo_BillOfMaterial b
+    JOIN depth d ON b.FINISHED_GOOD_ITEM_NUMBER = d.COMPONENT_ITEM_NUMBER
+  )
+  SELECT MAX(lvl) AS max_depth FROM depth OPTION (MAXRECURSION 100);
+  ```
+- Si tu BOM tiene ciclos (un componente que termina siendo su propio
+  ancestro), esta consulta de validación nunca termina — en `bom_flat` no
+  hay ese riesgo porque los niveles están acotados a 8 self-joins fijos,
+  nunca hace loop infinito.
 
 ## Resultado
 
