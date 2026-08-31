@@ -4,152 +4,39 @@
 -- diferencia del SP, que corre por @bu) para que el dataset de salida sirva
 -- para cualquier planta sin necesidad de un parametro en vivo.
 --
--- Alias esperados de los 5 inputs del tile (renombra los inputs del tile con
--- estos alias, o ajusta los nombres en el FROM/JOIN de abajo):
+-- Alias esperados de los 4 inputs del tile (renombra los inputs del tile con
+-- estos alias, o ajusta los nombres en el FROM/JOIN de abajo). Ya NO se usa
+-- el dataset BOM: Plan viene pre-explosionado a nivel componente, con su
+-- propia columna de FG y de componente, asi que no hace falta ningun join
+-- ni desenrollar el BOM multinivel.
 --   Inventory  -> GDLRealTruck.data.Domo_Inventory
 --   Opor       -> GDLRealTruck.data.opor
 --   Consumos   -> GDLRealTruck.data.Consumos
---   Plan       -> GDLRealTruck.data.PlanCTB
---   BOM        -> GDLRealTruck.data.Domo_BillOfMaterial
+--   Plan       -> GDLRealTruck.data.PlanCTB (ya explosionado por componente)
 --
 -- Verifica los nombres/tipos de columna contra tus datasets reales antes de
 -- correr (mismos nombres que en domo-brick-clear-to-build/app.js). Si una
 -- columna trae espacios usa backticks, ej. `2nd Item Number`.
 --
--- Plan usa PARENT_ITEM (modelo/FG) y PO_DATE_REQUESTED (fecha) -- ajusta si
--- el nombre real de la columna que hace match contra
--- BOM.FINISHED_GOOD_ITEM_NUMBER no es PARENT_ITEM.
---
--- El BOM es multinivel: un componente puede ser a su vez un subensamble con
--- su propio BOM. El tile SQL de Magic ETL NO soporta CTEs recursivos de
--- forma confiable (WITH RECURSIVE falla en el tile), asi que en vez de
--- recursion real se "desenrolla" el BOM con auto-joins encadenados hasta un
--- numero fijo de niveles (bom_flat abajo). Ajusta NIVELES_BOM si tu
--- estructura real tiene mas profundidad que la cubierta aqui (por defecto
--- 8 niveles) -- ver README para la consulta de validacion.
+-- Columnas de Plan usadas aqui:
+--   PARENT_ITEM                          -> FG (modelo)
+--   CPWF_COMPONENT_2ND_ITEM_NUMBER       -> Componente
+--   CPWF_DATE_REQUESTED                  -> Fecha
+--   CPWF_UNITS_ORDER_TRANSACTION_QTY     -> Demanda del componente (ya no se
+--                                            multiplica por ningun ratio de BOM)
 
-WITH bom_flat AS (
-  -- Desenrolla el BOM multinivel en pares (TopFG, Component-en-cualquier-
-  -- nivel, cantidad acumulada = producto de las cantidades del camino).
-  -- Si un componente aparece en mas de un nivel/camino para el mismo TopFG,
-  -- sus cantidades se suman (explosion estandar de BOM).
-  SELECT TopFG, Component, SUM(Qty) AS Qty
-  FROM (
-    -- Nivel 1
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b1.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY        AS Qty
-    FROM BOM b1
-
-    UNION ALL
-
-    -- Nivel 2
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b2.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-
-    UNION ALL
-
-    -- Nivel 3
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b3.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY * b3.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-    JOIN BOM b3 ON b3.FINISHED_GOOD_ITEM_NUMBER = b2.COMPONENT_ITEM_NUMBER
-
-    UNION ALL
-
-    -- Nivel 4
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b4.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY * b3.COMPONENT_QUANTITY * b4.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-    JOIN BOM b3 ON b3.FINISHED_GOOD_ITEM_NUMBER = b2.COMPONENT_ITEM_NUMBER
-    JOIN BOM b4 ON b4.FINISHED_GOOD_ITEM_NUMBER = b3.COMPONENT_ITEM_NUMBER
-
-    UNION ALL
-
-    -- Nivel 5
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b5.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY * b3.COMPONENT_QUANTITY * b4.COMPONENT_QUANTITY * b5.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-    JOIN BOM b3 ON b3.FINISHED_GOOD_ITEM_NUMBER = b2.COMPONENT_ITEM_NUMBER
-    JOIN BOM b4 ON b4.FINISHED_GOOD_ITEM_NUMBER = b3.COMPONENT_ITEM_NUMBER
-    JOIN BOM b5 ON b5.FINISHED_GOOD_ITEM_NUMBER = b4.COMPONENT_ITEM_NUMBER
-
-    UNION ALL
-
-    -- Nivel 6
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b6.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY * b3.COMPONENT_QUANTITY * b4.COMPONENT_QUANTITY * b5.COMPONENT_QUANTITY * b6.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-    JOIN BOM b3 ON b3.FINISHED_GOOD_ITEM_NUMBER = b2.COMPONENT_ITEM_NUMBER
-    JOIN BOM b4 ON b4.FINISHED_GOOD_ITEM_NUMBER = b3.COMPONENT_ITEM_NUMBER
-    JOIN BOM b5 ON b5.FINISHED_GOOD_ITEM_NUMBER = b4.COMPONENT_ITEM_NUMBER
-    JOIN BOM b6 ON b6.FINISHED_GOOD_ITEM_NUMBER = b5.COMPONENT_ITEM_NUMBER
-
-    UNION ALL
-
-    -- Nivel 7
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b7.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY * b3.COMPONENT_QUANTITY * b4.COMPONENT_QUANTITY * b5.COMPONENT_QUANTITY * b6.COMPONENT_QUANTITY * b7.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-    JOIN BOM b3 ON b3.FINISHED_GOOD_ITEM_NUMBER = b2.COMPONENT_ITEM_NUMBER
-    JOIN BOM b4 ON b4.FINISHED_GOOD_ITEM_NUMBER = b3.COMPONENT_ITEM_NUMBER
-    JOIN BOM b5 ON b5.FINISHED_GOOD_ITEM_NUMBER = b4.COMPONENT_ITEM_NUMBER
-    JOIN BOM b6 ON b6.FINISHED_GOOD_ITEM_NUMBER = b5.COMPONENT_ITEM_NUMBER
-    JOIN BOM b7 ON b7.FINISHED_GOOD_ITEM_NUMBER = b6.COMPONENT_ITEM_NUMBER
-
-    UNION ALL
-
-    -- Nivel 8
-    SELECT
-      b1.FINISHED_GOOD_ITEM_NUMBER AS TopFG,
-      b8.COMPONENT_ITEM_NUMBER     AS Component,
-      b1.COMPONENT_QUANTITY * b2.COMPONENT_QUANTITY * b3.COMPONENT_QUANTITY * b4.COMPONENT_QUANTITY * b5.COMPONENT_QUANTITY * b6.COMPONENT_QUANTITY * b7.COMPONENT_QUANTITY * b8.COMPONENT_QUANTITY AS Qty
-    FROM BOM b1
-    JOIN BOM b2 ON b2.FINISHED_GOOD_ITEM_NUMBER = b1.COMPONENT_ITEM_NUMBER
-    JOIN BOM b3 ON b3.FINISHED_GOOD_ITEM_NUMBER = b2.COMPONENT_ITEM_NUMBER
-    JOIN BOM b4 ON b4.FINISHED_GOOD_ITEM_NUMBER = b3.COMPONENT_ITEM_NUMBER
-    JOIN BOM b5 ON b5.FINISHED_GOOD_ITEM_NUMBER = b4.COMPONENT_ITEM_NUMBER
-    JOIN BOM b6 ON b6.FINISHED_GOOD_ITEM_NUMBER = b5.COMPONENT_ITEM_NUMBER
-    JOIN BOM b7 ON b7.FINISHED_GOOD_ITEM_NUMBER = b6.COMPONENT_ITEM_NUMBER
-    JOIN BOM b8 ON b8.FINISHED_GOOD_ITEM_NUMBER = b7.COMPONENT_ITEM_NUMBER
-  ) levels
-  WHERE Component IS NOT NULL
-  GROUP BY TopFG, Component
-),
-
-demand AS (
-  -- Paso 4-6 del brick: explota el plan de produccion (SIN filtro de BU,
-  -- igual que el SP) contra el BOM YA APLANADO (bom_flat, todos los
-  -- niveles). DemandQty y FG agregados por Component + Fecha.
+WITH demand AS (
+  -- Paso 4-6 del brick: agrega la demanda YA EXPLOSIONADA por componente que
+  -- trae Plan directamente (sin join contra BOM). DemandQty y FG agregados
+  -- por Component + Fecha.
   SELECT
-    f.Component                                                AS Component,
-    CAST(p.PO_DATE_REQUESTED AS DATE)                          AS Fecha,
-    SUM(f.Qty * p.qty)                                         AS DemandQty,
+    p.CPWF_COMPONENT_2ND_ITEM_NUMBER                           AS Component,
+    CAST(p.CPWF_DATE_REQUESTED AS DATE)                        AS Fecha,
+    SUM(p.CPWF_UNITS_ORDER_TRANSACTION_QTY)                    AS DemandQty,
     GROUP_CONCAT(DISTINCT p.PARENT_ITEM ORDER BY p.PARENT_ITEM SEPARATOR ', ') AS FG
   FROM Plan p
-  JOIN bom_flat f
-    ON f.TopFG = p.PARENT_ITEM
-  GROUP BY f.Component, CAST(p.PO_DATE_REQUESTED AS DATE)
+  WHERE p.CPWF_COMPONENT_2ND_ITEM_NUMBER IS NOT NULL
+  GROUP BY p.CPWF_COMPONENT_2ND_ITEM_NUMBER, CAST(p.CPWF_DATE_REQUESTED AS DATE)
 ),
 
 inv_agg AS (

@@ -10,19 +10,19 @@ parámetro en vivo.
 ## Cómo armarlo en Magic ETL
 
 1. Crea un nuevo Dataflow (Magic ETL 2.0).
-2. Agrega los 5 datasets como inputs:
+2. Agrega los 4 datasets como inputs (ya **no** se usa `Domo_BillOfMaterial`:
+   `PlanCTB` ya viene explosionado a nivel componente):
    - `GDLRealTruck.data.Domo_Inventory`
    - `GDLRealTruck.data.opor`
    - `GDLRealTruck.data.Consumos`
    - `GDLRealTruck.data.PlanCTB`
-   - `GDLRealTruck.data.Domo_BillOfMaterial`
-3. Agrega un tile **SQL** (categoría Utility) y conéctale los 5 inputs.
+3. Agrega un tile **SQL** (categoría Utility) y conéctale los 4 inputs.
    Dentro del tile, renombra cada input con el alias que usa `ctb.sql`:
-   `Inventory`, `Opor`, `Consumos`, `Plan`, `BOM`.
+   `Inventory`, `Opor`, `Consumos`, `Plan`.
 4. Pega el contenido de [`ctb.sql`](./ctb.sql) en el tile.
 5. Conecta la salida del tile a un tile **Output** y nómbralo, por ejemplo,
    `CTB_Result`.
-6. Programa el Dataflow con el mismo schedule (o uno posterior) al de los 5
+6. Programa el Dataflow con el mismo schedule (o uno posterior) al de los 4
    datasets de entrada, para que siempre corra con datos frescos.
 
 ## Antes de correrlo, verifica
@@ -46,44 +46,12 @@ parámetro en vivo.
   filtra por planta — la misma demanda total se descuenta del inventario de
   cada BU por separado. Si esto no es el comportamiento de negocio deseado
   (y solo era así en el SP por conveniencia), avisa para ajustar el join.
-- **Nombres de Plan**: asumí que la columna que hace match contra
-  `BOM.FINISHED_GOOD_ITEM_NUMBER` es `PARENT_ITEM` y que la fecha es
-  `PO_DATE_REQUESTED`. Si el campo de join real tiene otro nombre distinto
-  al de FG mostrado en pantalla, dímelo para separarlos.
-
-### BOM multinivel (sin recursión real)
-
-El BOM puede ser multinivel: un componente puede a su vez ser un
-subensamble con su propio BOM. El tile SQL de Magic ETL **no soporta
-`WITH RECURSIVE` de forma confiable** (hay un bug reportado en el foro de
-Domo), así que `bom_flat` desenrolla el BOM con auto-joins encadenados en
-vez de recursión real, cubriendo hasta **8 niveles** por defecto. Un
-componente que aparece en más de un nivel/camino para el mismo FG suma sus
-cantidades (explosión estándar de BOM).
-
-- Si tu BOM real tiene más de 8 niveles, copia el patrón del último bloque
-  `UNION ALL` y agrega `b9`, `b10`, etc.
-- Para validar que 8 niveles alcanzan, corre esta consulta contra tu BOM
-  real (fuera del tile, en cualquier cliente SQL o en un tile de prueba):
-  encuentra el nivel más profundo contando cuántas veces se puede
-  encadenar `COMPONENT_ITEM_NUMBER -> FINISHED_GOOD_ITEM_NUMBER` antes de
-  quedarse sin matches. Si tienes acceso a SQL Server, una recursive CTE
-  ahí sí funciona y es la forma más simple de medir la profundidad real:
-  ```sql
-  WITH depth AS (
-    SELECT FINISHED_GOOD_ITEM_NUMBER, COMPONENT_ITEM_NUMBER, 1 AS lvl
-    FROM Domo_BillOfMaterial
-    UNION ALL
-    SELECT b.FINISHED_GOOD_ITEM_NUMBER, b.COMPONENT_ITEM_NUMBER, d.lvl + 1
-    FROM Domo_BillOfMaterial b
-    JOIN depth d ON b.FINISHED_GOOD_ITEM_NUMBER = d.COMPONENT_ITEM_NUMBER
-  )
-  SELECT MAX(lvl) AS max_depth FROM depth OPTION (MAXRECURSION 100);
-  ```
-- Si tu BOM tiene ciclos (un componente que termina siendo su propio
-  ancestro), esta consulta de validación nunca termina — en `bom_flat` no
-  hay ese riesgo porque los niveles están acotados a 8 self-joins fijos,
-  nunca hace loop infinito.
+- **Columnas de Plan usadas**: `PARENT_ITEM` (FG), `CPWF_COMPONENT_2ND_ITEM_NUMBER`
+  (componente), `CPWF_DATE_REQUESTED` (fecha), `CPWF_UNITS_ORDER_TRANSACTION_QTY`
+  (demanda ya a nivel componente). Como `Plan` ya viene explosionado, `ctb.sql`
+  ya no hace ningún join contra un BOM ni explota niveles — si en algún
+  momento cambia y vuelve a venir a nivel FG (sin explosionar), habría que
+  reintroducir ese join.
 
 ## Resultado
 
@@ -98,12 +66,12 @@ El dataset `CTB_Result` queda con una fila por `BU + Component + Fecha`:
 | `InventoryQty` | Inventario inicial del componente en ese BU |
 | `OporQty` | OPOR de ese componente/fecha en ese BU |
 | `ConsumoQty` | Consumo histórico (`Do Ty = 'IM'`), informativo, no afecta el balance |
-| `DemandQty` | Demanda explotada del plan vía BOM |
+| `DemandQty` | Demanda del plan, ya a nivel componente |
 | `Balance` | Balance corrido (`InventoryQty` inicial + acumulado de `OporQty - DemandQty`) |
 | `CTB` | `'YES'` si `Balance >= 0`, si no `'NO'` |
 
 Con esto, el brick de `domo-brick-clear-to-build` puede simplificarse a **un
-solo dataset** (`CTB_Result`): ya no necesita las 5 tablas ni recalcular el
+solo dataset** (`CTB_Result`): ya no necesita las 4 tablas ni recalcular el
 cursor en el navegador, solo filtra por `BU`, colorea por `CTB` y exporta.
 Si quieres, puedo reescribir ese `app.js` para que lea directamente de este
 dataset.
