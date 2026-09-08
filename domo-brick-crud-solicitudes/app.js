@@ -59,7 +59,8 @@ function ensureCollection() {
           { name: 'fechaHoraPicking', type: 'DATETIME' },
           { name: 'userRelease', type: 'STRING' },
           { name: 'fechaHoraRelease', type: 'DATETIME' },
-          { name: 'tiempoRespuestaSegundos', type: 'DOUBLE' }
+          { name: 'tiempoRespuestaSegundos', type: 'DOUBLE' },
+          { name: 'folio', type: 'LONG' }
         ]
       }
     })
@@ -86,6 +87,7 @@ function crearSolicitud() {
   }
 
   var content = {
+    folio: nextFolio(), // consecutivo visible al usuario en vez del id interno de AppDB
     solicitante: solicitante,
     item: item,
     linea: linea,
@@ -112,6 +114,18 @@ function crearSolicitud() {
     .then(function () {
       setLoading(false);
     });
+}
+
+// Siguiente folio consecutivo, calculado a partir de la última lista cargada.
+// Nota: si dos personas registran una solicitud al mismo tiempo antes de refrescar,
+// podrían competir por el mismo folio; para el volumen de esta app es aceptable.
+function nextFolio() {
+  var max = 0;
+  allDocs.forEach(function (doc) {
+    var f = doc.content.folio;
+    if (typeof f === 'number' && f > max) max = f;
+  });
+  return max + 1;
 }
 
 // ---------- CONSULTA ----------
@@ -167,7 +181,7 @@ function buildRow(doc) {
   var c = doc.content;
   var tr = document.createElement('tr');
 
-  tr.appendChild(cell(doc.id));
+  tr.appendChild(cell(formatFolio(c.folio), 'numeric'));
   tr.appendChild(cell(c.solicitante));
   tr.appendChild(cell(c.item));
   tr.appendChild(cell(c.linea));
@@ -189,14 +203,31 @@ function buildPickingCell(doc) {
   var td = document.createElement('td');
 
   if (actionMode && actionMode.id === doc.id && actionMode.type === 'picking') {
-    td.appendChild(buildInlineCapture('Usuario que asigna', function (valor) {
-      confirmarPicking(doc, valor);
-    }));
+    td.appendChild(
+      buildInlineCapture('Usuario que asigna', actionMode.valorInicial, function (valor) {
+        if (actionMode.esEdicion) {
+          editarPicking(doc, valor);
+        } else {
+          confirmarPicking(doc, valor);
+        }
+      })
+    );
     return td;
   }
 
   if (c.userPicking) {
-    td.textContent = c.userPicking;
+    var valorSpan = document.createElement('span');
+    valorSpan.textContent = c.userPicking;
+    td.appendChild(valorSpan);
+
+    var btnEditarPicking = document.createElement('button');
+    btnEditarPicking.className = 'secondary small';
+    btnEditarPicking.textContent = 'Editar';
+    btnEditarPicking.addEventListener('click', function () {
+      actionMode = { id: doc.id, type: 'picking', esEdicion: true, valorInicial: c.userPicking };
+      renderTable();
+    });
+    td.appendChild(btnEditarPicking);
     return td;
   }
 
@@ -206,7 +237,7 @@ function buildPickingCell(doc) {
     btnAsignar.className = 'small';
     btnAsignar.textContent = 'Asignar';
     btnAsignar.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'picking' };
+      actionMode = { id: doc.id, type: 'picking', esEdicion: false, valorInicial: '' };
       renderTable();
     });
     td.appendChild(btnAsignar);
@@ -228,20 +259,47 @@ function confirmarPicking(doc, userPicking) {
   guardarCambios(doc.id, content);
 }
 
+// Corrige el nombre ya capturado sin tocar fechaHoraPicking/estatus.
+function editarPicking(doc, userPicking) {
+  if (!userPicking) {
+    showStatus('Ingresa el usuario que asigna.');
+    return;
+  }
+  var content = Object.assign({}, doc.content, { userPicking: userPicking });
+  guardarCambios(doc.id, content);
+}
+
 // ---------- ACTUALIZACIÓN: Release ----------
 function buildReleaseCell(doc) {
   var c = doc.content;
   var td = document.createElement('td');
 
   if (actionMode && actionMode.id === doc.id && actionMode.type === 'release') {
-    td.appendChild(buildInlineCapture('Usuario que libera', function (valor) {
-      confirmarRelease(doc, valor);
-    }));
+    td.appendChild(
+      buildInlineCapture('Usuario que libera', actionMode.valorInicial, function (valor) {
+        if (actionMode.esEdicion) {
+          editarRelease(doc, valor);
+        } else {
+          confirmarRelease(doc, valor);
+        }
+      })
+    );
     return td;
   }
 
   if (c.userRelease) {
-    td.textContent = c.userRelease;
+    var valorSpan = document.createElement('span');
+    valorSpan.textContent = c.userRelease;
+    td.appendChild(valorSpan);
+
+    var btnEditarRelease = document.createElement('button');
+    btnEditarRelease.className = 'secondary small';
+    btnEditarRelease.textContent = 'Editar';
+    btnEditarRelease.addEventListener('click', function () {
+      actionMode = { id: doc.id, type: 'release', esEdicion: true, valorInicial: c.userRelease };
+      renderTable();
+    });
+    td.appendChild(btnEditarRelease);
     return td;
   }
 
@@ -251,7 +309,7 @@ function buildReleaseCell(doc) {
     btnRelease.className = 'small';
     btnRelease.textContent = 'Release';
     btnRelease.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'release' };
+      actionMode = { id: doc.id, type: 'release', esEdicion: false, valorInicial: '' };
       renderTable();
     });
     td.appendChild(btnRelease);
@@ -276,6 +334,16 @@ function confirmarRelease(doc, userRelease) {
   guardarCambios(doc.id, content);
 }
 
+// Corrige el nombre ya capturado sin tocar fechaHoraRelease/estatus/tiempoRespuestaSegundos.
+function editarRelease(doc, userRelease) {
+  if (!userRelease) {
+    showStatus('Ingresa el usuario que libera.');
+    return;
+  }
+  var content = Object.assign({}, doc.content, { userRelease: userRelease });
+  guardarCambios(doc.id, content);
+}
+
 function guardarCambios(docId, content) {
   setLoading(true);
   showStatus('');
@@ -293,14 +361,15 @@ function guardarCambios(docId, content) {
     });
 }
 
-// Input + Confirmar/Cancelar en línea, usado tanto para Asignar como para Release.
-function buildInlineCapture(placeholder, onConfirm) {
+// Input + Confirmar/Cancelar en línea, usado tanto para Asignar/Release como para editarlos.
+function buildInlineCapture(placeholder, valorInicial, onConfirm) {
   var wrapper = document.createElement('div');
   wrapper.className = 'inline-action';
 
   var input = document.createElement('input');
   input.type = 'text';
   input.placeholder = placeholder;
+  input.value = valorInicial || '';
 
   var btnConfirmar = document.createElement('button');
   btnConfirmar.className = 'small';
@@ -333,6 +402,10 @@ function cell(text, cls) {
 
 function formatNumber(n) {
   return typeof n === 'number' ? n.toLocaleString('es-MX') : n;
+}
+
+function formatFolio(folio) {
+  return typeof folio === 'number' ? String(folio).padStart(4, '0') : '';
 }
 
 function formatDateTime(iso) {
