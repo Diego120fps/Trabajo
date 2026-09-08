@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CRUD Solicitudes</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="section-header">
+      <h3>Nueva solicitud (Alta)</h3>
+    </div>
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="solicitanteInput">Quien solicita</label>
+        <input type="text" id="solicitanteInput" placeholder="Nombre de quien solicita" />
+      </div>
+
+      <div class="filter-group">
+        <label for="itemInput">Item</label>
+        <input type="text" id="itemInput" placeholder="Ej: 1001A" />
+      </div>
+
+      <div class="filter-group">
+        <label for="cantidadInput">Cantidad</label>
+        <input type="number" id="cantidadInput" step="any" placeholder="0" />
+      </div>
+
+      <div class="filter-actions">
+        <button id="btnCrear">Registrar solicitud</button>
+      </div>
+    </div>
+    <span class="hint">Fecha/hora y estatus (Pendiente) se asignan automáticamente al guardar.</span>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div class="section-header">
+      <h3>Solicitudes (Consulta)</h3>
+      <button id="btnRefrescar" class="secondary small">Refrescar</button>
+    </div>
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="buscarInput">Buscar (quien solicita / item)</label>
+        <input type="text" id="buscarInput" placeholder="Filtrar..." />
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+      <table id="solicitudesTable">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Quien solicita</th>
+            <th>Item</th>
+            <th>Cantidad</th>
+            <th>Fecha/Hora insert</th>
+            <th>Estatus</th>
+            <th>Tiempo de respuesta</th>
+            <th>Acciones</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
