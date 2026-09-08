@@ -151,8 +151,9 @@ function cargarSolicitudes() {
 function renderTable() {
   var filtro = buscarInput.value.trim().toLowerCase();
   var rows = allDocs.filter(function (doc) {
-    if (!filtro) return true;
     var c = doc.content;
+    if (c.estatus === 2) return false; // Completados ya no se muestran, solo abiertos
+    if (!filtro) return true;
     return (
       (c.solicitante || '').toLowerCase().indexOf(filtro) !== -1 ||
       (c.item || '').toLowerCase().indexOf(filtro) !== -1
@@ -166,7 +167,7 @@ function renderTable() {
     var emptyTd = document.createElement('td');
     emptyTd.colSpan = 12;
     emptyTd.className = 'empty-cell';
-    emptyTd.textContent = 'Sin solicitudes registradas.';
+    emptyTd.textContent = 'Sin solicitudes abiertas.';
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
     return;
