@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Almacén - Asignación y Release</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="section-header">
+      <h3>Solicitudes abiertas</h3>
+      <button id="btnRefrescar" class="secondary small">Refrescar</button>
+    </div>
+    <span class="hint">Selecciona el dataset de Inventario con el botón de la esquina inferior izquierda del brick (se usa para sugerir localidades FIFO al Asignar). Este brick solo asigna/libera: no puede crear solicitudes.</span>
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="buscarInput">Buscar (quien solicita / item)</label>
+        <input type="text" id="buscarInput" placeholder="Filtrar..." />
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div class="table-wrapper">
+      <table id="solicitudesTable">
+        <thead>
+          <tr>
+            <th>Folio</th>
+            <th>Quien solicita</th>
+            <th>Item</th>
+            <th>Línea</th>
+            <th>Cantidad</th>
+            <th>Fecha/Hora insert</th>
+            <th>Estatus</th>
+            <th>User Picking</th>
+            <th>Fecha/Hora Picking</th>
+            <th>User Release</th>
+            <th>Fecha/Hora Release</th>
+            <th>Tiempo de respuesta</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

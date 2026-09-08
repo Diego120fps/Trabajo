@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CRUD Solicitudes</title>
+  <title>Alta de Solicitudes</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -37,13 +37,13 @@
         <button id="btnCrear">Registrar solicitud</button>
       </div>
     </div>
-    <span class="hint">Fecha/hora y estatus (Pendiente) se asignan automáticamente al guardar. User Picking/Release se llenan con los botones Asignar/Release de la tabla.</span>
+    <span class="hint">Folio, fecha/hora y estatus (Pendiente) se asignan automáticamente al guardar. Este brick solo crea: no puede asignar ni liberar solicitudes.</span>
 
     <div id="statusMsg" class="status-msg"></div>
     <div id="loading" class="loading" style="display:none;">Cargando...</div>
 
     <div class="section-header">
-      <h3>Solicitudes (Consulta)</h3>
+      <h3>Mis solicitudes</h3>
       <button id="btnRefrescar" class="secondary small">Refrescar</button>
     </div>
     <div class="filters-row">
@@ -64,11 +64,6 @@
             <th>Cantidad</th>
             <th>Fecha/Hora insert</th>
             <th>Estatus</th>
-            <th>User Picking</th>
-            <th>Fecha/Hora Picking</th>
-            <th>User Release</th>
-            <th>Fecha/Hora Release</th>
-            <th>Tiempo de respuesta</th>
           </tr>
         </thead>
         <tbody></tbody>
