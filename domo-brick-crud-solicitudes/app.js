@@ -5,12 +5,13 @@ var domo = window.domo;
 var COLLECTION = 'solicitudes';
 var DOCS_URL = '/domo/datastores/v1/collections/' + COLLECTION + '/documents';
 
-// Estatus: 0 = Pendiente (valor automático al crear, nunca lo captura el usuario).
+// Estatus: 0 Pendiente (automático al crear) -> 1 En proceso (al Asignar) -> 2 Completado (al Release).
 var ESTATUS_LABELS = { 0: 'Pendiente', 1: 'En proceso', 2: 'Completado' };
 var ESTATUS_INICIAL = 0;
 
 var solicitanteInput = document.getElementById('solicitanteInput');
 var itemInput = document.getElementById('itemInput');
+var lineaInput = document.getElementById('lineaInput');
 var cantidadInput = document.getElementById('cantidadInput');
 var btnCrear = document.getElementById('btnCrear');
 var btnRefrescar = document.getElementById('btnRefrescar');
@@ -20,7 +21,10 @@ var loadingEl = document.getElementById('loading');
 var tbody = document.querySelector('#solicitudesTable tbody');
 
 var allDocs = []; // última lista traída de AppDB, formato [{id, content: {...}}, ...]
-var editingId = null; // id de la fila actualmente en modo edición (Actualización)
+
+// Fila donde se está capturando el usuario de Asignar o de Release ahora mismo.
+// { id: <doc.id>, type: 'picking' | 'release' } o null si ninguna fila está en captura.
+var actionMode = null;
 
 init();
 
@@ -47,10 +51,14 @@ function ensureCollection() {
         columns: [
           { name: 'solicitante', type: 'STRING' },
           { name: 'item', type: 'STRING' },
+          { name: 'linea', type: 'STRING' },
           { name: 'cantidad', type: 'DOUBLE' },
           { name: 'fechaHoraInsert', type: 'DATETIME' },
           { name: 'estatus', type: 'LONG' },
-          { name: 'fechaHoraActualizacion', type: 'DATETIME' },
+          { name: 'userPicking', type: 'STRING' },
+          { name: 'fechaHoraPicking', type: 'DATETIME' },
+          { name: 'userRelease', type: 'STRING' },
+          { name: 'fechaHoraRelease', type: 'DATETIME' },
           { name: 'tiempoRespuestaSegundos', type: 'DOUBLE' }
         ]
       }
@@ -64,10 +72,11 @@ function ensureCollection() {
 function crearSolicitud() {
   var solicitante = solicitanteInput.value.trim();
   var item = itemInput.value.trim();
+  var linea = lineaInput.value.trim();
   var cantidadRaw = cantidadInput.value.trim();
 
-  if (!solicitante || !item || cantidadRaw === '') {
-    showStatus('Completa Quien solicita, Item y Cantidad.');
+  if (!solicitante || !item || !linea || cantidadRaw === '') {
+    showStatus('Completa Quien solicita, Item, Línea y Cantidad.');
     return;
   }
   var cantidad = Number(cantidadRaw);
@@ -79,9 +88,11 @@ function crearSolicitud() {
   var content = {
     solicitante: solicitante,
     item: item,
+    linea: linea,
     cantidad: cantidad,
     fechaHoraInsert: new Date().toISOString(), // fecha y hora del insert, automática
     estatus: ESTATUS_INICIAL // automático, el usuario nunca lo captura
+    // userPicking/fechaHoraPicking/userRelease/fechaHoraRelease se llenan con los botones Asignar/Release
   };
 
   setLoading(true);
@@ -91,6 +102,7 @@ function crearSolicitud() {
     .then(function () {
       solicitanteInput.value = '';
       itemInput.value = '';
+      lineaInput.value = '';
       cantidadInput.value = '';
       return cargarSolicitudes();
     })
@@ -138,7 +150,7 @@ function renderTable() {
   if (rows.length === 0) {
     var emptyTr = document.createElement('tr');
     var emptyTd = document.createElement('td');
-    emptyTd.colSpan = 8;
+    emptyTd.colSpan = 12;
     emptyTd.className = 'empty-cell';
     emptyTd.textContent = 'Sin solicitudes registradas.';
     emptyTr.appendChild(emptyTd);
@@ -147,127 +159,130 @@ function renderTable() {
   }
 
   rows.forEach(function (doc) {
-    tbody.appendChild(doc.id === editingId ? buildEditRow(doc) : buildReadRow(doc));
+    tbody.appendChild(buildRow(doc));
   });
 }
 
-function buildReadRow(doc) {
+function buildRow(doc) {
   var c = doc.content;
   var tr = document.createElement('tr');
 
   tr.appendChild(cell(doc.id));
   tr.appendChild(cell(c.solicitante));
   tr.appendChild(cell(c.item));
+  tr.appendChild(cell(c.linea));
   tr.appendChild(cell(formatNumber(c.cantidad), 'numeric'));
   tr.appendChild(cell(formatDateTime(c.fechaHoraInsert)));
   tr.appendChild(cell(ESTATUS_LABELS[c.estatus] !== undefined ? ESTATUS_LABELS[c.estatus] : c.estatus));
+  tr.appendChild(buildPickingCell(doc));
+  tr.appendChild(cell(formatDateTime(c.fechaHoraPicking)));
+  tr.appendChild(buildReleaseCell(doc));
+  tr.appendChild(cell(formatDateTime(c.fechaHoraRelease)));
   tr.appendChild(cell(formatTiempoRespuesta(c)));
-
-  var accionesTd = document.createElement('td');
-  var btnEditar = document.createElement('button');
-  btnEditar.className = 'secondary small';
-  btnEditar.textContent = 'Actualizar';
-  btnEditar.addEventListener('click', function () {
-    editingId = doc.id;
-    renderTable();
-  });
-  accionesTd.appendChild(btnEditar);
-  tr.appendChild(accionesTd);
 
   return tr;
 }
 
-// ---------- ACTUALIZACIÓN ----------
-function buildEditRow(doc) {
+// ---------- ACTUALIZACIÓN: Asignar (Picking) ----------
+function buildPickingCell(doc) {
   var c = doc.content;
-  var tr = document.createElement('tr');
+  var td = document.createElement('td');
 
-  tr.appendChild(cell(doc.id));
-
-  var solicitanteTd = document.createElement('td');
-  var solicitanteEdit = document.createElement('input');
-  solicitanteEdit.type = 'text';
-  solicitanteEdit.value = c.solicitante;
-  solicitanteTd.appendChild(solicitanteEdit);
-  tr.appendChild(solicitanteTd);
-
-  var itemTd = document.createElement('td');
-  var itemEdit = document.createElement('input');
-  itemEdit.type = 'text';
-  itemEdit.value = c.item;
-  itemTd.appendChild(itemEdit);
-  tr.appendChild(itemTd);
-
-  var cantidadTd = document.createElement('td');
-  var cantidadEdit = document.createElement('input');
-  cantidadEdit.type = 'number';
-  cantidadEdit.step = 'any';
-  cantidadEdit.value = c.cantidad;
-  cantidadTd.appendChild(cantidadEdit);
-  tr.appendChild(cantidadTd);
-
-  tr.appendChild(cell(formatDateTime(c.fechaHoraInsert)));
-
-  var estatusTd = document.createElement('td');
-  var estatusSelect = document.createElement('select');
-  Object.keys(ESTATUS_LABELS).forEach(function (key) {
-    var opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = ESTATUS_LABELS[key];
-    if (Number(key) === c.estatus) opt.selected = true;
-    estatusSelect.appendChild(opt);
-  });
-  estatusTd.appendChild(estatusSelect);
-  tr.appendChild(estatusTd);
-
-  tr.appendChild(cell(formatTiempoRespuesta(c)));
-
-  var accionesTd = document.createElement('td');
-  var btnGuardar = document.createElement('button');
-  btnGuardar.className = 'small';
-  btnGuardar.textContent = 'Guardar';
-  btnGuardar.addEventListener('click', function () {
-    guardarActualizacion(doc, {
-      solicitante: solicitanteEdit.value.trim(),
-      item: itemEdit.value.trim(),
-      cantidad: Number(cantidadEdit.value),
-      estatus: Number(estatusSelect.value)
-    });
-  });
-  var btnCancelar = document.createElement('button');
-  btnCancelar.className = 'secondary small';
-  btnCancelar.textContent = 'Cancelar';
-  btnCancelar.addEventListener('click', function () {
-    editingId = null;
-    renderTable();
-  });
-  accionesTd.appendChild(btnGuardar);
-  accionesTd.appendChild(btnCancelar);
-  tr.appendChild(accionesTd);
-
-  return tr;
-}
-
-function guardarActualizacion(doc, cambios) {
-  if (!cambios.solicitante || !cambios.item || isNaN(cambios.cantidad)) {
-    showStatus('Revisa Quien solicita, Item y Cantidad.');
-    return;
+  if (actionMode && actionMode.id === doc.id && actionMode.type === 'picking') {
+    td.appendChild(buildInlineCapture('Usuario que asigna', function (valor) {
+      confirmarPicking(doc, valor);
+    }));
+    return td;
   }
 
+  if (c.userPicking) {
+    td.textContent = c.userPicking;
+    return td;
+  }
+
+  // Solo Pendiente (sin picking todavía) muestra el botón Asignar.
+  if (c.estatus === 0) {
+    var btnAsignar = document.createElement('button');
+    btnAsignar.className = 'small';
+    btnAsignar.textContent = 'Asignar';
+    btnAsignar.addEventListener('click', function () {
+      actionMode = { id: doc.id, type: 'picking' };
+      renderTable();
+    });
+    td.appendChild(btnAsignar);
+  }
+
+  return td;
+}
+
+function confirmarPicking(doc, userPicking) {
+  if (!userPicking) {
+    showStatus('Ingresa el usuario que asigna.');
+    return;
+  }
+  var content = Object.assign({}, doc.content, {
+    userPicking: userPicking,
+    fechaHoraPicking: new Date().toISOString(),
+    estatus: 1
+  });
+  guardarCambios(doc.id, content);
+}
+
+// ---------- ACTUALIZACIÓN: Release ----------
+function buildReleaseCell(doc) {
+  var c = doc.content;
+  var td = document.createElement('td');
+
+  if (actionMode && actionMode.id === doc.id && actionMode.type === 'release') {
+    td.appendChild(buildInlineCapture('Usuario que libera', function (valor) {
+      confirmarRelease(doc, valor);
+    }));
+    return td;
+  }
+
+  if (c.userRelease) {
+    td.textContent = c.userRelease;
+    return td;
+  }
+
+  // El botón Release solo aparece una vez que ya se asignó el Picking (estatus En proceso).
+  if (c.estatus === 1) {
+    var btnRelease = document.createElement('button');
+    btnRelease.className = 'small';
+    btnRelease.textContent = 'Release';
+    btnRelease.addEventListener('click', function () {
+      actionMode = { id: doc.id, type: 'release' };
+      renderTable();
+    });
+    td.appendChild(btnRelease);
+  }
+
+  return td;
+}
+
+function confirmarRelease(doc, userRelease) {
+  if (!userRelease) {
+    showStatus('Ingresa el usuario que libera.');
+    return;
+  }
   var ahora = new Date();
   var tiempoRespuestaSegundos = (ahora.getTime() - new Date(doc.content.fechaHoraInsert).getTime()) / 1000;
-
-  var content = Object.assign({}, doc.content, cambios, {
-    fechaHoraActualizacion: ahora.toISOString(),
+  var content = Object.assign({}, doc.content, {
+    userRelease: userRelease,
+    fechaHoraRelease: ahora.toISOString(),
+    estatus: 2,
     tiempoRespuestaSegundos: tiempoRespuestaSegundos
   });
+  guardarCambios(doc.id, content);
+}
 
+function guardarCambios(docId, content) {
   setLoading(true);
   showStatus('');
   domo
-    .put(DOCS_URL + '/' + doc.id, { content: content })
+    .put(DOCS_URL + '/' + docId, { content: content })
     .then(function () {
-      editingId = null;
+      actionMode = null;
       return cargarSolicitudes();
     })
     .catch(function (err) {
@@ -276,6 +291,36 @@ function guardarActualizacion(doc, cambios) {
     .then(function () {
       setLoading(false);
     });
+}
+
+// Input + Confirmar/Cancelar en línea, usado tanto para Asignar como para Release.
+function buildInlineCapture(placeholder, onConfirm) {
+  var wrapper = document.createElement('div');
+  wrapper.className = 'inline-action';
+
+  var input = document.createElement('input');
+  input.type = 'text';
+  input.placeholder = placeholder;
+
+  var btnConfirmar = document.createElement('button');
+  btnConfirmar.className = 'small';
+  btnConfirmar.textContent = 'Confirmar';
+  btnConfirmar.addEventListener('click', function () {
+    onConfirm(input.value.trim());
+  });
+
+  var btnCancelar = document.createElement('button');
+  btnCancelar.className = 'secondary small';
+  btnCancelar.textContent = 'Cancelar';
+  btnCancelar.addEventListener('click', function () {
+    actionMode = null;
+    renderTable();
+  });
+
+  wrapper.appendChild(input);
+  wrapper.appendChild(btnConfirmar);
+  wrapper.appendChild(btnCancelar);
+  return wrapper;
 }
 
 // ---------- Helpers ----------
@@ -296,8 +341,8 @@ function formatDateTime(iso) {
   return d.toLocaleString('es-MX');
 }
 
-// Si ya se actualizó, muestra el tiempo de respuesta guardado (fijo).
-// Si sigue Pendiente, muestra el tiempo transcurrido desde el insert hasta ahora.
+// Si ya se hizo Release, muestra el tiempo de respuesta guardado (fijo, insert -> release).
+// Si aún no, muestra el tiempo transcurrido desde el insert hasta ahora.
 function formatTiempoRespuesta(c) {
   var segundos;
   if (typeof c.tiempoRespuestaSegundos === 'number') {

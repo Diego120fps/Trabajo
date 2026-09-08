@@ -172,6 +172,17 @@ tbody td select {
   font-size: 13px;
 }
 
+.inline-action {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.inline-action input {
+  width: 120px;
+}
+
 tbody tr:nth-child(even) {
   background: #fafbfc;
 }

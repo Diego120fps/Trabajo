@@ -24,6 +24,11 @@
       </div>
 
       <div class="filter-group">
+        <label for="lineaInput">Línea</label>
+        <input type="text" id="lineaInput" placeholder="Ej: L1" />
+      </div>
+
+      <div class="filter-group">
         <label for="cantidadInput">Cantidad</label>
         <input type="number" id="cantidadInput" step="any" placeholder="0" />
       </div>
@@ -32,7 +37,7 @@
         <button id="btnCrear">Registrar solicitud</button>
       </div>
     </div>
-    <span class="hint">Fecha/hora y estatus (Pendiente) se asignan automáticamente al guardar.</span>
+    <span class="hint">Fecha/hora y estatus (Pendiente) se asignan automáticamente al guardar. User Picking/Release se llenan con los botones Asignar/Release de la tabla.</span>
 
     <div id="statusMsg" class="status-msg"></div>
     <div id="loading" class="loading" style="display:none;">Cargando...</div>
@@ -55,11 +60,15 @@
             <th>ID</th>
             <th>Quien solicita</th>
             <th>Item</th>
+            <th>Línea</th>
             <th>Cantidad</th>
             <th>Fecha/Hora insert</th>
             <th>Estatus</th>
+            <th>User Picking</th>
+            <th>Fecha/Hora Picking</th>
+            <th>User Release</th>
+            <th>Fecha/Hora Release</th>
             <th>Tiempo de respuesta</th>
-            <th>Acciones</th>
           </tr>
         </thead>
         <tbody></tbody>
