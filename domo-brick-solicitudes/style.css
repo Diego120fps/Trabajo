@@ -19,6 +19,66 @@ body {
   overflow-y: auto;
 }
 
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid #e4e7eb;
+  padding-bottom: 8px;
+}
+
+.tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.tab-btn {
+  background: transparent;
+  color: #4d4d4d;
+  border: none;
+  border-radius: 4px 4px 0 0;
+  padding: 8px 14px;
+  font-weight: 600;
+}
+
+.tab-btn:hover:not(:disabled) {
+  background: #f4f5f7;
+}
+
+.tab-btn.active {
+  background: #0b6ecc;
+  color: #fff;
+}
+
+.user-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: #4d4d4d;
+}
+
+.role-badge {
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.role-badge.role-almacen {
+  background: #dff3e6;
+  color: #1e8449;
+}
+
+.role-badge.role-solicitante {
+  background: #eef2f7;
+  color: #4d4d4d;
+}
+
 .section-header {
   display: flex;
   align-items: center;
@@ -70,6 +130,21 @@ body {
   outline: none;
   border-color: #0b6ecc;
   box-shadow: 0 0 0 2px rgba(11, 110, 204, 0.15);
+}
+
+.checkbox-group {
+  flex-direction: row;
+  align-items: center;
+  min-width: auto;
+}
+
+.checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: none;
+  font-weight: 400;
+  cursor: pointer;
 }
 
 .hint {
@@ -202,19 +277,51 @@ td.empty-cell {
   color: #9aa1a9;
 }
 
-.checkbox-group {
-  flex-direction: row;
-  align-items: center;
-  min-width: auto;
+tr.fifo-row td {
+  background: #f7fafd;
+  border-bottom: 2px solid #e4e7eb;
+  padding: 10px 12px;
 }
 
-.checkbox-group label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  text-transform: none;
-  font-weight: 400;
-  cursor: pointer;
+.fifo-panel {
+  font-size: 12px;
+}
+
+.fifo-title {
+  font-weight: 600;
+  color: #4d4d4d;
+  margin-bottom: 6px;
+}
+
+table.fifo-table {
+  width: auto;
+  min-width: 320px;
+  border-collapse: collapse;
+  background: #fff;
+  border: 1px solid #e4e7eb;
+  border-radius: 4px;
+}
+
+table.fifo-table th {
+  text-align: left;
+  padding: 5px 10px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4d4d4d;
+  background: #f4f5f7;
+  border-bottom: 1px solid #e4e7eb;
+}
+
+table.fifo-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid #eef0f2;
+}
+
+.fifo-warning {
+  margin-top: 6px;
+  color: #c0392b;
+  font-weight: 600;
 }
 
 .semaforo-dot {

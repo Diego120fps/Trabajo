@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Solicitudes</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="topbar">
+      <div class="tabs">
+        <button id="tabBtnSolicitudes" class="tab-btn active">Solicitudes</button>
+        <button id="tabBtnSemaforo" class="tab-btn">Semáforo</button>
+      </div>
+      <div class="user-badge">
+        <span id="userLabel">Identificando usuario...</span>
+        <span id="roleBadge" class="role-badge"></span>
+        <button id="btnRegistrarAlmacen" class="secondary small" style="display:none;">Registrarme como almacén</button>
+        <button id="btnQuitarAlmacen" class="secondary small" style="display:none;">Dejar de ser almacén</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <!-- ================= TAB: SOLICITUDES ================= -->
+    <div id="tabSolicitudes">
+
+      <div class="section-header">
+        <h3>Nueva solicitud (Alta)</h3>
+      </div>
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="solicitanteInput">Quien solicita</label>
+          <input type="text" id="solicitanteInput" placeholder="Nombre de quien solicita" />
+        </div>
+        <div class="filter-group">
+          <label for="itemInput">Item</label>
+          <input type="text" id="itemInput" placeholder="Ej: 1001A" />
+        </div>
+        <div class="filter-group">
+          <label for="lineaInput">Línea</label>
+          <input type="text" id="lineaInput" placeholder="Ej: L1" />
+        </div>
+        <div class="filter-group">
+          <label for="cantidadInput">Cantidad</label>
+          <input type="number" id="cantidadInput" step="any" placeholder="0" />
+        </div>
+        <div class="filter-actions">
+          <button id="btnCrear">Registrar solicitud</button>
+        </div>
+      </div>
+      <span class="hint">Folio, fecha/hora y estatus (Pendiente) se asignan automáticamente. Solo Almacén puede Asignar/Release.</span>
+
+      <div class="section-header">
+        <h3>Solicitudes</h3>
+        <button id="btnRefrescar" class="secondary small">Refrescar</button>
+      </div>
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarInput">Buscar (quien solicita / item)</label>
+          <input type="text" id="buscarInput" placeholder="Filtrar..." />
+        </div>
+        <div class="filter-group checkbox-group">
+          <label>
+            <input type="checkbox" id="mostrarCompletadasInput" />
+            Mostrar completadas
+          </label>
+        </div>
+      </div>
+      <span class="hint" id="inventarioHint">Almacén: selecciona el dataset de Inventario con el botón de la esquina inferior izquierda del brick (se usa para sugerir localidades FIFO al Asignar).</span>
+
+      <div class="table-wrapper">
+        <table id="solicitudesTable">
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Quien solicita</th>
+              <th>Item</th>
+              <th>Línea</th>
+              <th>Cantidad</th>
+              <th>Fecha/Hora insert</th>
+              <th>Estatus</th>
+              <th>User Picking</th>
+              <th>Fecha/Hora Picking</th>
+              <th>User Release</th>
+              <th>Fecha/Hora Release</th>
+              <th>Tiempo de respuesta</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= TAB: SEMÁFORO ================= -->
+    <div id="tabSemaforo" style="display:none;">
+
+      <div class="section-header">
+        <h3>Semáforo (aging de solicitudes)</h3>
+      </div>
+      <span class="hint">Solo lectura. Se refresca solo cada minuto para que el aging se mantenga al día.</span>
+
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarSemaforoInput">Buscar (quien solicita / item)</label>
+          <input type="text" id="buscarSemaforoInput" placeholder="Filtrar..." />
+        </div>
+        <div class="filter-group checkbox-group">
+          <label>
+            <input type="checkbox" id="mostrarCompletadasSemaforoInput" />
+            Mostrar completadas
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="semaforoTable">
+          <thead>
+            <tr>
+              <th>Aging</th>
+              <th>Folio</th>
+              <th>Quien solicita</th>
+              <th>Item</th>
+              <th>Línea</th>
+              <th>Cantidad</th>
+              <th>Estatus</th>
+              <th>User Picking</th>
+              <th>User Release</th>
+              <th>Tiempo</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

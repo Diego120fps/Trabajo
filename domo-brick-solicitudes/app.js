@@ -9,7 +9,6 @@ var FIELD_ITEM_INV = 'ITEM_NUMBER_SECOND';       // Código de item en el datase
 var FIELD_LOCALIDAD = 'ILOC_BRANCH_PLANT';       // Branch/Plant = la "localidad" a sugerir
 var FIELD_QTY_DISPONIBLE = 'ILOC_QTY_ON_HAND';   // Cantidad disponible en esa localidad
 var FIELD_FIFO_ORDEN = 'ILOC_DATE_LAST_RECEIPT'; // Fecha de último recibo: se usa para ordenar FIFO
-
 var INVENTARIO_LIMIT = 5000;
 
 // Este almacén solo surte desde estos Branch/Plant (mismo grupo "Plataforma"
@@ -18,40 +17,285 @@ var INVENTARIO_LIMIT = 5000;
 // consulta por código (con "=") y se juntan los resultados, igual que allá.
 var BRANCH_CODES = ['1221', '2300'];
 
-// Este brick SOLO asigna (Picking) y libera (Release) solicitudes ya
-// creadas. No tiene formulario de alta: eso vive en
-// "domo-brick-solicitudes-alta", en otra página compartida solo a
-// solicitantes. La separación real la da el permiso de página de DOMO,
-// no el código de este brick.
-
+// ============================================================
+// AppDB: TODO va en UN SOLO brick/app para que las 3 vistas (alta,
+// asignación/release, semáforo) compartan el mismo AppDB. AppDB en DOMO
+// está aislado por app: si cada vista fuera un brick/app distinto, cada
+// una tendría su propio almacén vacío aunque usen el mismo nombre de
+// colección (eso fue justo el bug que traía la versión de 3 bricks
+// separados: Alta veía sus datos, Almacén y Semáforo no).
+// ============================================================
 var COLLECTION = 'solicitudes';
 var DOCS_URL = '/domo/datastores/v1/collections/' + COLLECTION + '/documents';
 
-// Estatus: 0 Pendiente (creado en el otro brick) -> 1 En proceso (al Asignar) -> 2 Completado (al Release).
-var ESTATUS_LABELS = { 0: 'Pendiente', 1: 'En proceso', 2: 'Completado' };
+// Lista blanca de quién puede Asignar/Release. OJO: esto es control de UI,
+// NO una barrera de seguridad real -- cualquiera con la consola del
+// navegador podría llamar el API de AppDB directo con su propia sesión de
+// DOMO, sin pasar por este check. Si necesitas una barrera dura de verdad,
+// pregúntale a tu administrador de DOMO si su instancia soporta compartir
+// un AppDB entre apps distintas vía Admin/Governance; de ser así se puede
+// volver a separar en varios bricks con permisos de página reales.
+var ALMACEN_COLLECTION = 'almacen_usuarios';
+var ALMACEN_DOCS_URL = '/domo/datastores/v1/collections/' + ALMACEN_COLLECTION + '/documents';
 
+var ESTATUS_LABELS = { 0: 'Pendiente', 1: 'En proceso', 2: 'Completado' };
+var ESTATUS_INICIAL = 0;
+
+// Umbrales del semáforo en minutos desde fechaHoraInsert (o el tiempo de
+// respuesta ya congelado si la solicitud fue liberada).
+var AGING_AMARILLO_MIN = 30;
+var AGING_ROJO_MIN = 45;
+
+var AUTO_REFRESH_MS = 60000;
+
+// ---------- DOM ----------
+var tabBtnSolicitudes = document.getElementById('tabBtnSolicitudes');
+var tabBtnSemaforo = document.getElementById('tabBtnSemaforo');
+var tabSolicitudes = document.getElementById('tabSolicitudes');
+var tabSemaforo = document.getElementById('tabSemaforo');
+
+var userLabelEl = document.getElementById('userLabel');
+var roleBadgeEl = document.getElementById('roleBadge');
+var btnRegistrarAlmacen = document.getElementById('btnRegistrarAlmacen');
+var btnQuitarAlmacen = document.getElementById('btnQuitarAlmacen');
+
+var solicitanteInput = document.getElementById('solicitanteInput');
+var itemInput = document.getElementById('itemInput');
+var lineaInput = document.getElementById('lineaInput');
+var cantidadInput = document.getElementById('cantidadInput');
+var btnCrear = document.getElementById('btnCrear');
 var btnRefrescar = document.getElementById('btnRefrescar');
 var buscarInput = document.getElementById('buscarInput');
+var mostrarCompletadasInput = document.getElementById('mostrarCompletadasInput');
 var statusMsg = document.getElementById('statusMsg');
 var loadingEl = document.getElementById('loading');
 var tbody = document.querySelector('#solicitudesTable tbody');
 
-var allDocs = []; // última lista traída de AppDB, formato [{id, content: {...}}, ...]
+var buscarSemaforoInput = document.getElementById('buscarSemaforoInput');
+var mostrarCompletadasSemaforoInput = document.getElementById('mostrarCompletadasSemaforoInput');
+var semaforoTbody = document.querySelector('#semaforoTable tbody');
+
+// ---------- Estado ----------
+var allDocs = []; // última lista de solicitudes traída de AppDB: [{id, content: {...}}, ...]
+var almacenUsuarios = []; // lista blanca de almacén: [{id, content: {userId, nombre}}, ...]
+var CURRENT_USER = { id: null, label: 'Usuario desconocido' };
+var isAlmacen = false;
 
 // Fila donde se está capturando el usuario de Asignar o de Release ahora mismo.
-// { id: <doc.id>, type: 'picking' | 'release', esEdicion: bool, valorInicial: string }
 var actionMode = null;
-
 // Cache de la sugerencia FIFO por solicitud mientras se está Asignando.
-// { [doc.id]: { loading, lineas: [{localidad, cantidadTomar, disponible}], cubierto, faltante, error } }
 var fifoCache = {};
 
 init();
 
 function init() {
+  tabBtnSolicitudes.addEventListener('click', function () { switchTab('solicitudes'); });
+  tabBtnSemaforo.addEventListener('click', function () { switchTab('semaforo'); });
+
+  btnCrear.addEventListener('click', crearSolicitud);
   btnRefrescar.addEventListener('click', cargarSolicitudes);
   buscarInput.addEventListener('input', renderTable);
-  cargarSolicitudes();
+  mostrarCompletadasInput.addEventListener('change', renderTable);
+
+  buscarSemaforoInput.addEventListener('input', renderSemaforoTable);
+  mostrarCompletadasSemaforoInput.addEventListener('change', renderSemaforoTable);
+
+  btnRegistrarAlmacen.addEventListener('click', registrarmeComoAlmacen);
+  btnQuitarAlmacen.addEventListener('click', dejarDeSerAlmacen);
+
+  ensureCollections()
+    .then(cargarUsuarioActual)
+    .then(cargarAlmacenUsuarios)
+    .then(function () {
+      renderRoleUI();
+      return cargarSolicitudes();
+    })
+    .catch(function (err) {
+      showStatus('Error inicializando: ' + describeError(err));
+    });
+
+  setInterval(cargarSolicitudes, AUTO_REFRESH_MS);
+}
+
+function switchTab(tab) {
+  var esSolicitudes = tab === 'solicitudes';
+  tabSolicitudes.style.display = esSolicitudes ? '' : 'none';
+  tabSemaforo.style.display = esSolicitudes ? 'none' : '';
+  tabBtnSolicitudes.classList.toggle('active', esSolicitudes);
+  tabBtnSemaforo.classList.toggle('active', !esSolicitudes);
+  if (!esSolicitudes) renderSemaforoTable();
+}
+
+// ---------- Colecciones AppDB ----------
+function ensureCollections() {
+  return Promise.all([
+    domo
+      .post('/domo/datastores/v1/collections', {
+        name: COLLECTION,
+        schema: {
+          columns: [
+            { name: 'folio', type: 'LONG' },
+            { name: 'solicitante', type: 'STRING' },
+            { name: 'item', type: 'STRING' },
+            { name: 'linea', type: 'STRING' },
+            { name: 'cantidad', type: 'DOUBLE' },
+            { name: 'fechaHoraInsert', type: 'DATETIME' },
+            { name: 'estatus', type: 'LONG' },
+            { name: 'userPicking', type: 'STRING' },
+            { name: 'fechaHoraPicking', type: 'DATETIME' },
+            { name: 'userRelease', type: 'STRING' },
+            { name: 'fechaHoraRelease', type: 'DATETIME' },
+            { name: 'tiempoRespuestaSegundos', type: 'DOUBLE' }
+          ]
+        }
+      })
+      .catch(function () { return null; }),
+    domo
+      .post('/domo/datastores/v1/collections', {
+        name: ALMACEN_COLLECTION,
+        schema: {
+          columns: [
+            { name: 'userId', type: 'STRING' },
+            { name: 'nombre', type: 'STRING' }
+          ]
+        }
+      })
+      .catch(function () { return null; })
+  ]);
+}
+
+// ---------- Usuario actual y rol ----------
+// domo.env() da el id de sesión de DOMO; /domo/users/v1/<id> da el nombre.
+// Se envuelve en Promise.resolve() porque domo.env() puede regresar el
+// objeto directo o una promesa según la versión de domo.js.
+function cargarUsuarioActual() {
+  return Promise.resolve(domo.env())
+    .then(function (env) {
+      var userId = env && (env.domoUserId || env.userId);
+      if (!userId) throw new Error('sin domoUserId');
+      CURRENT_USER.id = String(userId);
+      return domo.get('/domo/users/v1/' + userId).catch(function () { return null; });
+    })
+    .then(function (user) {
+      CURRENT_USER.label = (user && (user.displayName || user.name || user.email)) || ('Usuario ' + CURRENT_USER.id);
+    })
+    .catch(function () {
+      CURRENT_USER.id = null;
+      CURRENT_USER.label = 'Usuario desconocido';
+    });
+}
+
+function cargarAlmacenUsuarios() {
+  return domo
+    .get(ALMACEN_DOCS_URL + '?limit=1000')
+    .then(function (docs) {
+      almacenUsuarios = docs || [];
+      isAlmacen = !!CURRENT_USER.id && almacenUsuarios.some(function (doc) {
+        return doc.content.userId === CURRENT_USER.id;
+      });
+    })
+    .catch(function () {
+      almacenUsuarios = [];
+      isAlmacen = false;
+    });
+}
+
+function renderRoleUI() {
+  userLabelEl.textContent = CURRENT_USER.label;
+  roleBadgeEl.textContent = isAlmacen ? 'Almacén' : 'Solicitante';
+  roleBadgeEl.className = 'role-badge ' + (isAlmacen ? 'role-almacen' : 'role-solicitante');
+  btnRegistrarAlmacen.style.display = !isAlmacen && CURRENT_USER.id ? '' : 'none';
+  btnQuitarAlmacen.style.display = isAlmacen ? '' : 'none';
+  renderTable();
+}
+
+function registrarmeComoAlmacen() {
+  if (!CURRENT_USER.id) {
+    showStatus('No se pudo identificar tu usuario de DOMO.');
+    return;
+  }
+  setLoading(true);
+  domo
+    .post(ALMACEN_DOCS_URL, { content: { userId: CURRENT_USER.id, nombre: CURRENT_USER.label } })
+    .then(cargarAlmacenUsuarios)
+    .then(renderRoleUI)
+    .catch(function (err) {
+      showStatus('No se pudo registrar: ' + describeError(err));
+    })
+    .then(function () {
+      setLoading(false);
+    });
+}
+
+function dejarDeSerAlmacen() {
+  var doc = almacenUsuarios.filter(function (d) { return d.content.userId === CURRENT_USER.id; })[0];
+  if (!doc) return;
+  setLoading(true);
+  domo
+    .delete(ALMACEN_DOCS_URL + '/' + doc.id)
+    .then(cargarAlmacenUsuarios)
+    .then(renderRoleUI)
+    .catch(function (err) {
+      showStatus('No se pudo actualizar: ' + describeError(err));
+    })
+    .then(function () {
+      setLoading(false);
+    });
+}
+
+// ---------- ALTA ----------
+function crearSolicitud() {
+  var solicitante = solicitanteInput.value.trim();
+  var item = itemInput.value.trim();
+  var linea = lineaInput.value.trim();
+  var cantidadRaw = cantidadInput.value.trim();
+
+  if (!solicitante || !item || !linea || cantidadRaw === '') {
+    showStatus('Completa Quien solicita, Item, Línea y Cantidad.');
+    return;
+  }
+  var cantidad = Number(cantidadRaw);
+  if (isNaN(cantidad)) {
+    showStatus('Cantidad debe ser numérica.');
+    return;
+  }
+
+  var content = {
+    folio: nextFolio(),
+    solicitante: solicitante,
+    item: item,
+    linea: linea,
+    cantidad: cantidad,
+    fechaHoraInsert: new Date().toISOString(),
+    estatus: ESTATUS_INICIAL
+  };
+
+  setLoading(true);
+  showStatus('');
+  domo
+    .post(DOCS_URL, { content: content })
+    .then(function () {
+      solicitanteInput.value = '';
+      itemInput.value = '';
+      lineaInput.value = '';
+      cantidadInput.value = '';
+      return cargarSolicitudes();
+    })
+    .catch(function (err) {
+      showStatus('No se pudo crear la solicitud: ' + describeError(err));
+    })
+    .then(function () {
+      setLoading(false);
+    });
+}
+
+function nextFolio() {
+  var max = 0;
+  allDocs.forEach(function (doc) {
+    var f = doc.content.folio;
+    if (typeof f === 'number' && f > max) max = f;
+  });
+  return max + 1;
 }
 
 // ---------- CONSULTA ----------
@@ -65,6 +309,7 @@ function cargarSolicitudes() {
         return new Date(b.content.fechaHoraInsert) - new Date(a.content.fechaHoraInsert);
       });
       renderTable();
+      renderSemaforoTable();
     })
     .catch(function (err) {
       showStatus('No se pudo cargar la lista: ' + describeError(err));
@@ -76,9 +321,10 @@ function cargarSolicitudes() {
 
 function renderTable() {
   var filtro = buscarInput.value.trim().toLowerCase();
+  var mostrarCompletadas = mostrarCompletadasInput.checked;
   var rows = allDocs.filter(function (doc) {
     var c = doc.content;
-    if (c.estatus === 2) return false; // Completadas ya no se muestran, solo abiertas
+    if (!mostrarCompletadas && c.estatus === 2) return false;
     if (!filtro) return true;
     return (
       (c.solicitante || '').toLowerCase().indexOf(filtro) !== -1 ||
@@ -93,7 +339,7 @@ function renderTable() {
     var emptyTd = document.createElement('td');
     emptyTd.colSpan = 12;
     emptyTd.className = 'empty-cell';
-    emptyTd.textContent = 'Sin solicitudes abiertas.';
+    emptyTd.textContent = 'Sin solicitudes para mostrar.';
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
     return;
@@ -108,7 +354,7 @@ function renderTable() {
 
 function buildRowGroup(doc) {
   var trs = [buildRow(doc)];
-  if (actionMode && actionMode.id === doc.id && actionMode.type === 'picking' && !actionMode.esEdicion) {
+  if (isAlmacen && actionMode && actionMode.id === doc.id && actionMode.type === 'picking' && !actionMode.esEdicion) {
     trs.push(buildFifoRow(doc));
   }
   return trs;
@@ -134,10 +380,15 @@ function buildRow(doc) {
   return tr;
 }
 
-// ---------- ASIGNAR (Picking) + sugerencia FIFO ----------
+// ---------- ASIGNAR (Picking) + sugerencia FIFO — solo Almacén ----------
 function buildPickingCell(doc) {
   var c = doc.content;
   var td = document.createElement('td');
+
+  if (!isAlmacen) {
+    td.textContent = c.userPicking || '';
+    return td;
+  }
 
   if (actionMode && actionMode.id === doc.id && actionMode.type === 'picking') {
     td.appendChild(
@@ -168,13 +419,12 @@ function buildPickingCell(doc) {
     return td;
   }
 
-  // Solo Pendiente (sin picking todavía) muestra el botón Asignar.
   if (c.estatus === 0) {
     var btnAsignar = document.createElement('button');
     btnAsignar.className = 'small';
     btnAsignar.textContent = 'Asignar';
     btnAsignar.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'picking', esEdicion: false, valorInicial: '' };
+      actionMode = { id: doc.id, type: 'picking', esEdicion: false, valorInicial: CURRENT_USER.label };
       fetchFifoLines(doc);
     });
     td.appendChild(btnAsignar);
@@ -193,12 +443,11 @@ function confirmarPicking(doc, userPicking) {
     userPicking: userPicking,
     fechaHoraPicking: new Date().toISOString(),
     estatus: 1,
-    lineasFifo: fifo ? fifo.lineas : [] // localidades sugeridas al momento de asignar, para auditoría
+    lineasFifo: fifo ? fifo.lineas : []
   });
   guardarCambios(doc.id, content);
 }
 
-// Corrige el nombre ya capturado sin tocar fechaHoraPicking/estatus/lineasFifo.
 function editarPicking(doc, userPicking) {
   if (!userPicking) {
     showStatus('Ingresa el usuario que asigna.');
@@ -245,8 +494,6 @@ function fetchFifoLines(doc) {
     });
 }
 
-// Una consulta por cada Branch/Plant de BRANCH_CODES (ver nota arriba sobre
-// por qué no se usa "in (...)"), juntando y reordenando por FIFO al final.
 function fetchInventoryRows(itemCode) {
   var fields = [FIELD_ITEM_INV, FIELD_LOCALIDAD, FIELD_QTY_DISPONIBLE, FIELD_FIFO_ORDEN];
   var itemFilter = buildFieldFilter(FIELD_ITEM_INV, itemCode);
@@ -265,9 +512,7 @@ function fetchInventoryRows(itemCode) {
   return Promise.all(queries).then(function (results) {
     var rows = [].concat.apply(
       [],
-      results.map(function (r) {
-        return r || [];
-      })
+      results.map(function (r) { return r || []; })
     );
     rows.sort(function (a, b) {
       return new Date(a[FIELD_FIFO_ORDEN]) - new Date(b[FIELD_FIFO_ORDEN]);
@@ -276,9 +521,6 @@ function fetchInventoryRows(itemCode) {
   });
 }
 
-// Recorre las filas de inventario (ya ordenadas FIFO por el query) y va
-// tomando localidades hasta cubrir la cantidad solicitada. Solo regresa
-// las localidades necesarias, no todo el inventario del item.
 function calcularLineasFifo(rows, cantidadNecesaria) {
   var lineas = [];
   var restante = cantidadNecesaria;
@@ -374,10 +616,15 @@ function th(text) {
   return el;
 }
 
-// ---------- RELEASE ----------
+// ---------- RELEASE — solo Almacén ----------
 function buildReleaseCell(doc) {
   var c = doc.content;
   var td = document.createElement('td');
+
+  if (!isAlmacen) {
+    td.textContent = c.userRelease || '';
+    return td;
+  }
 
   if (actionMode && actionMode.id === doc.id && actionMode.type === 'release') {
     td.appendChild(
@@ -408,13 +655,12 @@ function buildReleaseCell(doc) {
     return td;
   }
 
-  // El botón Release solo aparece una vez que ya se asignó el Picking (estatus En proceso).
   if (c.estatus === 1) {
     var btnRelease = document.createElement('button');
     btnRelease.className = 'small';
     btnRelease.textContent = 'Release';
     btnRelease.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'release', esEdicion: false, valorInicial: '' };
+      actionMode = { id: doc.id, type: 'release', esEdicion: false, valorInicial: CURRENT_USER.label };
       renderTable();
     });
     td.appendChild(btnRelease);
@@ -439,7 +685,6 @@ function confirmarRelease(doc, userRelease) {
   guardarCambios(doc.id, content);
 }
 
-// Corrige el nombre ya capturado sin tocar fechaHoraRelease/estatus/tiempoRespuestaSegundos.
 function editarRelease(doc, userRelease) {
   if (!userRelease) {
     showStatus('Ingresa el usuario que libera.');
@@ -466,7 +711,6 @@ function guardarCambios(docId, content) {
     });
 }
 
-// Input + Confirmar/Cancelar en línea, usado tanto para Asignar/Release como para editarlos.
 function buildInlineCapture(placeholder, valorInicial, onConfirm) {
   var wrapper = document.createElement('div');
   wrapper.className = 'inline-action';
@@ -497,6 +741,89 @@ function buildInlineCapture(placeholder, valorInicial, onConfirm) {
   return wrapper;
 }
 
+// ---------- SEMÁFORO (solo lectura) ----------
+function renderSemaforoTable() {
+  var filtro = buscarSemaforoInput.value.trim().toLowerCase();
+  var mostrarCompletadas = mostrarCompletadasSemaforoInput.checked;
+
+  var rows = allDocs
+    .filter(function (doc) {
+      var c = doc.content;
+      if (!mostrarCompletadas && c.estatus === 2) return false;
+      if (!filtro) return true;
+      return (
+        (c.solicitante || '').toLowerCase().indexOf(filtro) !== -1 ||
+        (c.item || '').toLowerCase().indexOf(filtro) !== -1
+      );
+    })
+    .slice()
+    .sort(function (a, b) {
+      var aCerrada = a.content.estatus === 2;
+      var bCerrada = b.content.estatus === 2;
+      if (aCerrada !== bCerrada) return aCerrada ? 1 : -1;
+      return aging(b.content) - aging(a.content);
+    });
+
+  semaforoTbody.innerHTML = '';
+
+  if (rows.length === 0) {
+    var emptyTr = document.createElement('tr');
+    var emptyTd = document.createElement('td');
+    emptyTd.colSpan = 10;
+    emptyTd.className = 'empty-cell';
+    emptyTd.textContent = 'Sin solicitudes para mostrar.';
+    emptyTr.appendChild(emptyTd);
+    semaforoTbody.appendChild(emptyTr);
+    return;
+  }
+
+  rows.forEach(function (doc) {
+    semaforoTbody.appendChild(buildSemaforoRow(doc));
+  });
+}
+
+function buildSemaforoRow(doc) {
+  var c = doc.content;
+  var tr = document.createElement('tr');
+
+  tr.appendChild(buildSemaforoCell(c));
+  tr.appendChild(cell(formatFolio(c.folio), 'numeric'));
+  tr.appendChild(cell(c.solicitante));
+  tr.appendChild(cell(c.item));
+  tr.appendChild(cell(c.linea));
+  tr.appendChild(cell(formatNumber(c.cantidad), 'numeric'));
+  tr.appendChild(cell(ESTATUS_LABELS[c.estatus] !== undefined ? ESTATUS_LABELS[c.estatus] : c.estatus));
+  tr.appendChild(cell(c.userPicking));
+  tr.appendChild(cell(c.userRelease));
+  tr.appendChild(cell(formatTiempo(c)));
+
+  return tr;
+}
+
+function aging(c) {
+  if (typeof c.tiempoRespuestaSegundos === 'number') return c.tiempoRespuestaSegundos;
+  return (Date.now() - new Date(c.fechaHoraInsert).getTime()) / 1000;
+}
+
+function nivelSemaforo(c) {
+  var minutos = aging(c) / 60;
+  if (minutos < AGING_AMARILLO_MIN) return 'verde';
+  if (minutos < AGING_ROJO_MIN) return 'amarillo';
+  return 'rojo';
+}
+
+function buildSemaforoCell(c) {
+  var td = document.createElement('td');
+  var dot = document.createElement('span');
+  dot.className = 'semaforo-dot semaforo-' + nivelSemaforo(c);
+  td.appendChild(dot);
+  return td;
+}
+
+function formatTiempo(c) {
+  return formatTiempoRespuesta(c);
+}
+
 // ---------- Helpers ----------
 function cell(text, cls) {
   var td = document.createElement('td');
@@ -519,17 +846,9 @@ function formatDateTime(iso) {
   return d.toLocaleString('es-MX');
 }
 
-// Si ya se hizo Release, muestra el tiempo de respuesta guardado (fijo, insert -> release).
-// Si aún no, muestra el tiempo transcurrido desde el insert hasta ahora.
 function formatTiempoRespuesta(c) {
-  var segundos;
-  if (typeof c.tiempoRespuestaSegundos === 'number') {
-    segundos = c.tiempoRespuestaSegundos;
-  } else {
-    segundos = (Date.now() - new Date(c.fechaHoraInsert).getTime()) / 1000;
-  }
+  var segundos = aging(c);
   if (segundos < 0) segundos = 0;
-
   var minutos = Math.floor(segundos / 60);
   var restoSeg = Math.round(segundos % 60);
   var etiqueta = minutos > 0 ? minutos + 'm ' + restoSeg + 's' : restoSeg + 's';
