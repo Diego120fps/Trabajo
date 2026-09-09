@@ -17,10 +17,15 @@
       <div class="user-badge">
         <span id="userLabel">Identificando usuario...</span>
         <span id="roleBadge" class="role-badge"></span>
+        <span id="identidadManual" class="inline-action" style="display:none;">
+          <input type="text" id="miNombreInput" placeholder="Tu nombre" />
+          <button id="btnGuardarNombre" class="small">Guardar</button>
+        </span>
         <button id="btnRegistrarAlmacen" class="secondary small" style="display:none;">Registrarme como almacén</button>
         <button id="btnQuitarAlmacen" class="secondary small" style="display:none;">Dejar de ser almacén</button>
       </div>
     </div>
+    <span class="hint" id="identidadHint" style="display:none;">No se pudo detectar tu usuario de DOMO automáticamente en este brick: escribe tu nombre arriba, se recordará en este navegador.</span>
 
     <div id="statusMsg" class="status-msg"></div>
     <div id="loading" class="loading" style="display:none;">Cargando...</div>

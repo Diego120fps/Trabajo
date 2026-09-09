@@ -48,6 +48,11 @@ var AGING_ROJO_MIN = 45;
 
 var AUTO_REFRESH_MS = 60000;
 
+// Este navegador no tiene forma de saber quién eres si domo.env()/el
+// endpoint de entorno no están disponibles en este tipo de brick; se
+// recuerda el nombre capturado manualmente aquí.
+var LOCAL_USER_KEY = 'solicitudes_miIdentidad';
+
 // ---------- DOM ----------
 var tabBtnSolicitudes = document.getElementById('tabBtnSolicitudes');
 var tabBtnSemaforo = document.getElementById('tabBtnSemaforo');
@@ -56,6 +61,10 @@ var tabSemaforo = document.getElementById('tabSemaforo');
 
 var userLabelEl = document.getElementById('userLabel');
 var roleBadgeEl = document.getElementById('roleBadge');
+var identidadManualEl = document.getElementById('identidadManual');
+var identidadHintEl = document.getElementById('identidadHint');
+var miNombreInput = document.getElementById('miNombreInput');
+var btnGuardarNombre = document.getElementById('btnGuardarNombre');
 var btnRegistrarAlmacen = document.getElementById('btnRegistrarAlmacen');
 var btnQuitarAlmacen = document.getElementById('btnQuitarAlmacen');
 
@@ -102,9 +111,18 @@ function init() {
 
   btnRegistrarAlmacen.addEventListener('click', registrarmeComoAlmacen);
   btnQuitarAlmacen.addEventListener('click', dejarDeSerAlmacen);
+  btnGuardarNombre.addEventListener('click', guardarIdentidadManual);
 
   ensureCollections()
-    .then(cargarUsuarioActual)
+    .then(function () {
+      // cargarUsuarioActual() nunca debe tronar el arranque: si no puede
+      // identificar al usuario (domo.env no existe en este tipo de brick,
+      // el endpoint de entorno no responde, etc.) simplemente pide el
+      // nombre a mano y sigue.
+      return cargarUsuarioActual().catch(function () {
+        mostrarCapturaManual();
+      });
+    })
     .then(cargarAlmacenUsuarios)
     .then(function () {
       renderRoleUI();
@@ -165,23 +183,84 @@ function ensureCollections() {
 }
 
 // ---------- Usuario actual y rol ----------
-// domo.env() da el id de sesión de DOMO; /domo/users/v1/<id> da el nombre.
-// Se envuelve en Promise.resolve() porque domo.env() puede regresar el
-// objeto directo o una promesa según la versión de domo.js.
+// domo.env() no existe como función en este tipo de brick (código simple
+// de App Studio, sin manifest.json) -- solo domo.get/post/put/delete están
+// disponibles aquí. Se intenta el endpoint equivalente vía domo.get(), que
+// sí funciona; si tampoco existe, se cae a pedir el nombre a mano una vez
+// (ver mostrarCapturaManual) y se recuerda en este navegador.
 function cargarUsuarioActual() {
-  return Promise.resolve(domo.env())
-    .then(function (env) {
-      var userId = env && (env.domoUserId || env.userId);
-      if (!userId) throw new Error('sin domoUserId');
-      CURRENT_USER.id = String(userId);
-      return domo.get('/domo/users/v1/' + userId).catch(function () { return null; });
-    })
+  if (typeof domo.env === 'function') {
+    return Promise.resolve(domo.env())
+      .then(resolverIdDesdeEnv)
+      .catch(function () {
+        return intentarEndpointEntorno();
+      });
+  }
+  return intentarEndpointEntorno();
+}
+
+function intentarEndpointEntorno() {
+  return domo.get('/domo/environment/v1').then(resolverIdDesdeEnv);
+}
+
+function resolverIdDesdeEnv(env) {
+  var userId = env && (env.domoUserId || env.userId);
+  if (!userId) throw new Error('sin domoUserId');
+  CURRENT_USER.id = String(userId);
+  return domo
+    .get('/domo/users/v1/' + userId)
+    .catch(function () { return null; })
     .then(function (user) {
       CURRENT_USER.label = (user && (user.displayName || user.name || user.email)) || ('Usuario ' + CURRENT_USER.id);
-    })
-    .catch(function () {
-      CURRENT_USER.id = null;
-      CURRENT_USER.label = 'Usuario desconocido';
+    });
+}
+
+// Recuerda un nombre capturado a mano en este navegador (localStorage), para
+// cuando DOMO no expone la identidad real de sesión en este tipo de brick.
+// OJO: esto NO es una identidad real de DOMO -- si varias personas comparten
+// el mismo navegador/perfil, comparten esta "identidad".
+function cargarIdentidadLocal() {
+  try {
+    var guardado = JSON.parse(localStorage.getItem(LOCAL_USER_KEY) || 'null');
+    if (guardado && guardado.id && guardado.label) return guardado;
+  } catch (e) {
+    // localStorage no disponible; se pedirá el nombre cada vez.
+  }
+  return null;
+}
+
+function mostrarCapturaManual() {
+  var guardado = cargarIdentidadLocal();
+  if (guardado) {
+    CURRENT_USER = guardado;
+    return;
+  }
+  CURRENT_USER = { id: null, label: 'Sin identificar' };
+  identidadHintEl.style.display = '';
+  identidadManualEl.style.display = '';
+}
+
+function guardarIdentidadManual() {
+  var nombre = miNombreInput.value.trim();
+  if (!nombre) {
+    showStatus('Escribe tu nombre.');
+    return;
+  }
+  var id = 'local-' + nombre.toLowerCase().replace(/\s+/g, '-') + '-' + Math.random().toString(36).slice(2, 8);
+  CURRENT_USER = { id: id, label: nombre };
+  try {
+    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(CURRENT_USER));
+  } catch (e) {
+    // localStorage no disponible; seguirá funcionando en esta sesión pero
+    // pedirá el nombre otra vez si se recarga la página.
+  }
+  identidadManualEl.style.display = 'none';
+  identidadHintEl.style.display = 'none';
+  setLoading(true);
+  cargarAlmacenUsuarios()
+    .then(renderRoleUI)
+    .then(function () {
+      setLoading(false);
     });
 }
 
