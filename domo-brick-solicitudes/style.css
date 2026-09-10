@@ -342,3 +342,58 @@ table.fifo-table td {
 .semaforo-rojo {
   background: #e74c3c;
 }
+
+.semaforo-cards {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.semaforo-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 120px;
+  padding: 12px 20px;
+  border-radius: 8px;
+  border: 1px solid #e4e7eb;
+}
+
+.semaforo-card-count {
+  font-size: 26px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.semaforo-card-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #4d4d4d;
+}
+
+.semaforo-card-verde {
+  background: #eafaf1;
+}
+
+.semaforo-card-verde .semaforo-card-count {
+  color: #1e8449;
+}
+
+.semaforo-card-amarillo {
+  background: #fef9e7;
+}
+
+.semaforo-card-amarillo .semaforo-card-count {
+  color: #b7950b;
+}
+
+.semaforo-card-rojo {
+  background: #fdedec;
+}
+
+.semaforo-card-rojo .semaforo-card-count {
+  color: #c0392b;
+}

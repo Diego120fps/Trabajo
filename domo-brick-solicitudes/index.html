@@ -106,7 +106,22 @@
       <div class="section-header">
         <h3>Semáforo (aging de solicitudes)</h3>
       </div>
-      <span class="hint">Solo lectura. Se refresca solo cada minuto para que el aging se mantenga al día.</span>
+      <span class="hint">Solo lectura. Se refresca solo cada minuto para que el aging se mantenga al día. Los conteos reflejan lo que muestra la tabla de abajo (respetan el buscador y "Mostrar completadas").</span>
+
+      <div class="semaforo-cards">
+        <div class="semaforo-card semaforo-card-verde">
+          <span class="semaforo-card-count" id="countVerde">0</span>
+          <span class="semaforo-card-label">Verde (&lt;30 min)</span>
+        </div>
+        <div class="semaforo-card semaforo-card-amarillo">
+          <span class="semaforo-card-count" id="countAmarillo">0</span>
+          <span class="semaforo-card-label">Amarillo (&lt;45 min)</span>
+        </div>
+        <div class="semaforo-card semaforo-card-rojo">
+          <span class="semaforo-card-count" id="countRojo">0</span>
+          <span class="semaforo-card-label">Rojo (&ge;45 min)</span>
+        </div>
+      </div>
 
       <div class="filters-row">
         <div class="filter-group">

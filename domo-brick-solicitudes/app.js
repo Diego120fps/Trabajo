@@ -83,6 +83,9 @@ var tbody = document.querySelector('#solicitudesTable tbody');
 var buscarSemaforoInput = document.getElementById('buscarSemaforoInput');
 var mostrarCompletadasSemaforoInput = document.getElementById('mostrarCompletadasSemaforoInput');
 var semaforoTbody = document.querySelector('#semaforoTable tbody');
+var countVerdeEl = document.getElementById('countVerde');
+var countAmarilloEl = document.getElementById('countAmarillo');
+var countRojoEl = document.getElementById('countRojo');
 
 // ---------- Estado ----------
 var allDocs = []; // última lista de solicitudes traída de AppDB: [{id, content: {...}}, ...]
@@ -114,15 +117,7 @@ function init() {
   btnGuardarNombre.addEventListener('click', guardarIdentidadManual);
 
   ensureCollections()
-    .then(function () {
-      // cargarUsuarioActual() nunca debe tronar el arranque: si no puede
-      // identificar al usuario (domo.env no existe en este tipo de brick,
-      // el endpoint de entorno no responde, etc.) simplemente pide el
-      // nombre a mano y sigue.
-      return cargarUsuarioActual().catch(function () {
-        mostrarCapturaManual();
-      });
-    })
+    .then(cargarUsuarioActual)
     .then(cargarAlmacenUsuarios)
     .then(function () {
       renderRoleUI();
@@ -183,36 +178,16 @@ function ensureCollections() {
 }
 
 // ---------- Usuario actual y rol ----------
-// domo.env() no existe como función en este tipo de brick (código simple
-// de App Studio, sin manifest.json) -- solo domo.get/post/put/delete están
-// disponibles aquí. Se intenta el endpoint equivalente vía domo.get(), que
-// sí funciona; si tampoco existe, se cae a pedir el nombre a mano una vez
-// (ver mostrarCapturaManual) y se recuerda en este navegador.
+// Este tipo de brick (código simple de App Studio, sin manifest.json) NO
+// expone la identidad real de la sesión de DOMO: ni domo.env() existe como
+// función aquí, ni hay un endpoint equivalente disponible vía domo.get()
+// (se probó /domo/environment/v1 y el propio cliente de DOMO tronaba con
+// "domo.env is not a function" al pedirlo -- por eso ya no se intenta).
+// En su lugar, se pide el nombre una sola vez y se recuerda en este
+// navegador (ver mostrarCapturaManual).
 function cargarUsuarioActual() {
-  if (typeof domo.env === 'function') {
-    return Promise.resolve(domo.env())
-      .then(resolverIdDesdeEnv)
-      .catch(function () {
-        return intentarEndpointEntorno();
-      });
-  }
-  return intentarEndpointEntorno();
-}
-
-function intentarEndpointEntorno() {
-  return domo.get('/domo/environment/v1').then(resolverIdDesdeEnv);
-}
-
-function resolverIdDesdeEnv(env) {
-  var userId = env && (env.domoUserId || env.userId);
-  if (!userId) throw new Error('sin domoUserId');
-  CURRENT_USER.id = String(userId);
-  return domo
-    .get('/domo/users/v1/' + userId)
-    .catch(function () { return null; })
-    .then(function (user) {
-      CURRENT_USER.label = (user && (user.displayName || user.name || user.email)) || ('Usuario ' + CURRENT_USER.id);
-    });
+  mostrarCapturaManual();
+  return Promise.resolve();
 }
 
 // Recuerda un nombre capturado a mano en este navegador (localStorage), para
@@ -240,13 +215,20 @@ function mostrarCapturaManual() {
   identidadManualEl.style.display = '';
 }
 
+// El id se deriva del nombre (sin parte aleatoria) para que sea predecible:
+// la misma persona escribiendo el mismo nombre en cualquier navegador
+// obtiene el mismo id, y si prefieres precargar la colección
+// "almacen_usuarios" a mano desde el explorador de AppDB de DOMO en vez de
+// que cada quien use el botón "Registrarme como almacén", el id a escribir
+// es exactamente "local-" + el nombre en minúsculas con guiones en vez de
+// espacios (ej. "Juan Pérez" -> "local-juan-pérez").
 function guardarIdentidadManual() {
   var nombre = miNombreInput.value.trim();
   if (!nombre) {
     showStatus('Escribe tu nombre.');
     return;
   }
-  var id = 'local-' + nombre.toLowerCase().replace(/\s+/g, '-') + '-' + Math.random().toString(36).slice(2, 8);
+  var id = 'local-' + nombre.toLowerCase().replace(/\s+/g, '-');
   CURRENT_USER = { id: id, label: nombre };
   try {
     localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(CURRENT_USER));
@@ -280,7 +262,10 @@ function cargarAlmacenUsuarios() {
 }
 
 function renderRoleUI() {
-  userLabelEl.textContent = CURRENT_USER.label;
+  // Se muestra el id junto al nombre para poder replicarlo a mano en el
+  // explorador de AppDB de DOMO si se quiere precargar la colección
+  // "almacen_usuarios" sin que cada persona use el botón de registro.
+  userLabelEl.textContent = CURRENT_USER.id ? CURRENT_USER.label + ' (id: ' + CURRENT_USER.id + ')' : CURRENT_USER.label;
   roleBadgeEl.textContent = isAlmacen ? 'Almacén' : 'Solicitante';
   roleBadgeEl.className = 'role-badge ' + (isAlmacen ? 'role-almacen' : 'role-solicitante');
   btnRegistrarAlmacen.style.display = !isAlmacen && CURRENT_USER.id ? '' : 'none';
@@ -585,10 +570,14 @@ function fetchInventoryRows(itemCode) {
       '&filter=' + filter +
       '&orderby=' + FIELD_FIFO_ORDEN +
       '&limit=' + INVENTARIO_LIMIT;
+    // Se deja en consola para poder revisar la query exacta y su respuesta
+    // si el FIFO no regresa lo esperado (ej. field IDs incorrectos).
+    console.log('Query FIFO inventario:', query);
     return domo.get(query);
   });
 
   return Promise.all(queries).then(function (results) {
+    console.log('Respuesta FIFO inventario (por Branch/Plant):', results);
     var rows = [].concat.apply(
       [],
       results.map(function (r) { return r || []; })
@@ -614,7 +603,10 @@ function calcularLineasFifo(rows, cantidadNecesaria) {
     });
     restante -= tomar;
   }
-  return { lineas: lineas, cubierto: cantidadNecesaria - restante, faltante: restante };
+  // rowCount se guarda para poder distinguir en el panel "no hay registros
+  // de este item en el dataset/Branch-Plant" de "hay registros pero sin
+  // cantidad disponible".
+  return { lineas: lineas, cubierto: cantidadNecesaria - restante, faltante: restante, rowCount: rows.length };
 }
 
 function buildFieldFilter(field, value) {
@@ -654,7 +646,18 @@ function renderFifoPanel(doc) {
   if (estado.lineas.length === 0) {
     var vacio = document.createElement('div');
     vacio.className = 'hint';
-    vacio.textContent = 'Sin existencia disponible para este item.';
+    if (!estado.rowCount) {
+      // 0 filas del dataset: lo más probable es que el item no exista tal
+      // cual en ITEM_NUMBER_SECOND, que no haya inventario en los Branch/
+      // Plant configurados (BRANCH_CODES), o que los field IDs no sean los
+      // reales (revisa la consola del navegador: ahí queda la query y la
+      // respuesta cruda de cada Branch/Plant).
+      vacio.textContent =
+        'No se encontró inventario para el item "' + doc.content.item + '" en los Branch/Plant ' + BRANCH_CODES.join('/') +
+        '. Revisa la consola del navegador (se imprime la query exacta) o confirma que "' + doc.content.item + '" existe tal cual en el dataset.';
+    } else {
+      vacio.textContent = 'Hay ' + estado.rowCount + ' registro(s) de este item, pero con cantidad disponible en 0.';
+    }
     wrapper.appendChild(vacio);
   } else {
     var tabla = document.createElement('table');
@@ -843,6 +846,8 @@ function renderSemaforoTable() {
       return aging(b.content) - aging(a.content);
     });
 
+  renderSemaforoCards(rows);
+
   semaforoTbody.innerHTML = '';
 
   if (rows.length === 0) {
@@ -889,6 +894,19 @@ function nivelSemaforo(c) {
   if (minutos < AGING_AMARILLO_MIN) return 'verde';
   if (minutos < AGING_ROJO_MIN) return 'amarillo';
   return 'rojo';
+}
+
+// Cuenta por rubro sobre las filas que ya se filtraron (buscador +
+// "Mostrar completadas"), para que las tarjetas siempre coincidan con lo
+// que se ve en la tabla de abajo.
+function renderSemaforoCards(rows) {
+  var conteos = { verde: 0, amarillo: 0, rojo: 0 };
+  rows.forEach(function (doc) {
+    conteos[nivelSemaforo(doc.content)]++;
+  });
+  countVerdeEl.textContent = conteos.verde;
+  countAmarilloEl.textContent = conteos.amarillo;
+  countRojoEl.textContent = conteos.rojo;
 }
 
 function buildSemaforoCell(c) {
