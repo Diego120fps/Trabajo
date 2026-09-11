@@ -14,6 +14,7 @@
 --   Plan.CPWF_COMPONENT_BRANCH             -> Branch/Plant
 --   Plan.CPWF_COMPONENT_2ND_ITEM_NUMBER    -> Componente
 --   Plan.CPWF_ITEM_NUMBER_SECOND           -> FG (modelo/finished good)
+--   Plan.CPWF_STOCKING_TYPE                -> Stocking Type del componente
 --   Plan.CPWF_UNITS_ORDER_TRANSACTION_QTY_2-> Cantidad requerida
 --   Plan.CPWF_DATE_REQUESTED               -> Fecha requerida
 --   Inventory.ILOC_BRANCH_PLANT            -> Branch/Plant
@@ -22,12 +23,14 @@
 
 WITH fg_rollup AS (
   -- Una fila por Componente: todos los FG que alguna vez comparten ese
-  -- componente (en cualquier Branch/Fecha), concatenados por comas. Al
-  -- calcularse aparte (agrupado SOLO por Componente) no puede fanear las
-  -- filas de "demand" -- se le pega despues con un LEFT JOIN.
+  -- componente (en cualquier Branch/Fecha), concatenados por comas, mas su
+  -- Stocking Type (CPWF_STOCKING_TYPE). Al calcularse aparte (agrupado SOLO
+  -- por Componente) no puede fanear las filas de "demand" -- se le pega
+  -- despues con un LEFT JOIN.
   SELECT
     CPWF_COMPONENT_2ND_ITEM_NUMBER AS Component,
-    GROUP_CONCAT(DISTINCT CPWF_ITEM_NUMBER_SECOND SEPARATOR ', ') AS FG
+    GROUP_CONCAT(DISTINCT CPWF_ITEM_NUMBER_SECOND SEPARATOR ', ') AS FG,
+    GROUP_CONCAT(DISTINCT CPWF_STOCKING_TYPE SEPARATOR ', ') AS StockingType
   FROM Plan
   WHERE CPWF_COMPONENT_2ND_ITEM_NUMBER IS NOT NULL
   GROUP BY CPWF_COMPONENT_2ND_ITEM_NUMBER
@@ -68,6 +71,7 @@ base AS (
     d.Component                  AS Component,
     d.Fecha                       AS Fecha,
     f.FG                          AS FG,
+    f.StockingType                AS StockingType,
     d.DemandQty                   AS DemandQty,
     COALESCE(i.InventoryQty, 0)   AS InventoryQty
   FROM demand d
@@ -81,7 +85,7 @@ calc AS (
   -- Balance corrido: inventario inicial menos la demanda acumulada, de la
   -- fecha mas vieja a la mas nueva, por cada Branch + Componente.
   SELECT
-    BU, Component, Fecha, FG, DemandQty, InventoryQty,
+    BU, Component, Fecha, FG, StockingType, DemandQty, InventoryQty,
     InventoryQty - SUM(DemandQty) OVER (
       PARTITION BY BU, Component
       ORDER BY Fecha
@@ -110,6 +114,7 @@ SELECT
   c.BU,
   c.Component,
   c.FG,
+  c.StockingType,
   c.Fecha,
   c.InventoryQty,
   c.DemandQty,
