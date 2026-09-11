@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Catálogo con Comentarios</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="section-header">
+      <h3>Catálogo (ETL) + Comentarios</h3>
+      <div class="header-actions">
+        <span id="lastSyncLabel" class="hint">Sin sincronizar todavía.</span>
+        <button id="btnSincronizar" class="secondary small">Sincronizar ahora</button>
+      </div>
+    </div>
+    <span class="hint">
+      Los datos (excepto Comentarios) vienen del dataset ETL seleccionado en el brick y se sincronizan tipo "merge":
+      lo nuevo se agrega, lo existente se actualiza y lo que ya no está en el ETL se elimina. Comentarios se
+      captura aquí y se conserva entre sincronizaciones.
+    </span>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="buscarInput">Buscar</label>
+        <input type="text" id="buscarInput" placeholder="Filtrar en cualquier columna..." />
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+      <table id="dataTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
