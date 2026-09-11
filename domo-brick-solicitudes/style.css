@@ -347,6 +347,7 @@ table.fifo-table td {
   display: flex;
   gap: 12px;
   flex-wrap: wrap;
+  justify-content: center;
 }
 
 .semaforo-card {
