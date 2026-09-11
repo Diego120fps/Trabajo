@@ -98,6 +98,7 @@ SELECT
   InventoryQty,
   DemandQty,
   Balance,
-  CASE WHEN Balance >= 0 THEN 'YES' ELSE 'NO' END AS CTB
+  CASE WHEN Balance >= 0 THEN 'YES' ELSE 'NO' END AS CTB,
+  CASE WHEN Balance < 0 THEN 1 ELSE 0 END AS Shortage
 FROM calc
 ORDER BY BU, Component, Fecha;

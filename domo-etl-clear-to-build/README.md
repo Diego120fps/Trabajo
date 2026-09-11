@@ -71,6 +71,7 @@ El dataset `CTB_Result` queda con una fila por `BU + Component + Fecha`:
 | `DemandQty` | Cantidad requerida en esa fecha |
 | `Balance` | Balance corrido (`InventoryQty` inicial − acumulado de `DemandQty`) |
 | `CTB` | `'YES'` si `Balance >= 0`, si no `'NO'` |
+| `Shortage` | `1` si `Balance < 0`, si no `0` (útil para sumar/graficar desabasto) |
 
 Con esto, el brick de `domo-brick-clear-to-build` puede simplificarse a **un
 solo dataset** (`CTB_Result`): ya no necesita recalcular nada en el
