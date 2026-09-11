@@ -55,9 +55,11 @@ var AUTO_REFRESH_MS = 60000;
 var LOCAL_USER_KEY = 'solicitudes_miIdentidad';
 
 // ---------- DOM ----------
-var tabBtnSolicitudes = document.getElementById('tabBtnSolicitudes');
+var tabBtnAlta = document.getElementById('tabBtnAlta');
+var tabBtnAlmacen = document.getElementById('tabBtnAlmacen');
 var tabBtnSemaforo = document.getElementById('tabBtnSemaforo');
-var tabSolicitudes = document.getElementById('tabSolicitudes');
+var tabAlta = document.getElementById('tabAlta');
+var tabAlmacen = document.getElementById('tabAlmacen');
 var tabSemaforo = document.getElementById('tabSemaforo');
 
 var userLabelEl = document.getElementById('userLabel');
@@ -74,6 +76,11 @@ var itemInput = document.getElementById('itemInput');
 var lineaInput = document.getElementById('lineaInput');
 var cantidadInput = document.getElementById('cantidadInput');
 var btnCrear = document.getElementById('btnCrear');
+var btnRefrescarAlta = document.getElementById('btnRefrescarAlta');
+var buscarAltaInput = document.getElementById('buscarAltaInput');
+var mostrarCompletadasAltaInput = document.getElementById('mostrarCompletadasAltaInput');
+var altaTbody = document.querySelector('#altaTable tbody');
+
 var btnRefrescar = document.getElementById('btnRefrescar');
 var buscarInput = document.getElementById('buscarInput');
 var mostrarCompletadasInput = document.getElementById('mostrarCompletadasInput');
@@ -102,10 +109,15 @@ var fifoCache = {};
 init();
 
 function init() {
-  tabBtnSolicitudes.addEventListener('click', function () { switchTab('solicitudes'); });
+  tabBtnAlta.addEventListener('click', function () { switchTab('alta'); });
+  tabBtnAlmacen.addEventListener('click', function () { switchTab('almacen'); });
   tabBtnSemaforo.addEventListener('click', function () { switchTab('semaforo'); });
 
   btnCrear.addEventListener('click', crearSolicitud);
+  btnRefrescarAlta.addEventListener('click', cargarSolicitudes);
+  buscarAltaInput.addEventListener('input', renderAltaTable);
+  mostrarCompletadasAltaInput.addEventListener('change', renderAltaTable);
+
   btnRefrescar.addEventListener('click', cargarSolicitudes);
   buscarInput.addEventListener('input', renderTable);
   mostrarCompletadasInput.addEventListener('change', renderTable);
@@ -132,12 +144,13 @@ function init() {
 }
 
 function switchTab(tab) {
-  var esSolicitudes = tab === 'solicitudes';
-  tabSolicitudes.style.display = esSolicitudes ? '' : 'none';
-  tabSemaforo.style.display = esSolicitudes ? 'none' : '';
-  tabBtnSolicitudes.classList.toggle('active', esSolicitudes);
-  tabBtnSemaforo.classList.toggle('active', !esSolicitudes);
-  if (!esSolicitudes) renderSemaforoTable();
+  tabAlta.style.display = tab === 'alta' ? '' : 'none';
+  tabAlmacen.style.display = tab === 'almacen' ? '' : 'none';
+  tabSemaforo.style.display = tab === 'semaforo' ? '' : 'none';
+  tabBtnAlta.classList.toggle('active', tab === 'alta');
+  tabBtnAlmacen.classList.toggle('active', tab === 'almacen');
+  tabBtnSemaforo.classList.toggle('active', tab === 'semaforo');
+  if (tab === 'semaforo') renderSemaforoTable();
 }
 
 // ---------- Colecciones AppDB ----------
@@ -373,6 +386,7 @@ function cargarSolicitudes() {
       allDocs = (docs || []).slice().sort(function (a, b) {
         return new Date(b.content.fechaHoraInsert) - new Date(a.content.fechaHoraInsert);
       });
+      renderAltaTable();
       renderTable();
       renderSemaforoTable();
     })
@@ -382,6 +396,47 @@ function cargarSolicitudes() {
     .then(function () {
       setLoading(false);
     });
+}
+
+// ---------- Tabla de Alta (solo lectura, sin botones de acción) ----------
+function renderAltaTable() {
+  var filtro = buscarAltaInput.value.trim().toLowerCase();
+  var mostrarCompletadas = mostrarCompletadasAltaInput.checked;
+  var rows = allDocs.filter(function (doc) {
+    var c = doc.content;
+    if (!mostrarCompletadas && c.estatus === 2) return false;
+    if (!filtro) return true;
+    return (
+      (c.solicitante || '').toLowerCase().indexOf(filtro) !== -1 ||
+      (c.item || '').toLowerCase().indexOf(filtro) !== -1
+    );
+  });
+
+  altaTbody.innerHTML = '';
+
+  if (rows.length === 0) {
+    var emptyTr = document.createElement('tr');
+    var emptyTd = document.createElement('td');
+    emptyTd.colSpan = 7;
+    emptyTd.className = 'empty-cell';
+    emptyTd.textContent = 'Sin solicitudes para mostrar.';
+    emptyTr.appendChild(emptyTd);
+    altaTbody.appendChild(emptyTr);
+    return;
+  }
+
+  rows.forEach(function (doc) {
+    var c = doc.content;
+    var tr = document.createElement('tr');
+    tr.appendChild(cell(formatFolio(c.folio), 'numeric'));
+    tr.appendChild(cell(c.solicitante));
+    tr.appendChild(cell(c.item));
+    tr.appendChild(cell(c.linea));
+    tr.appendChild(cell(formatNumber(c.cantidad), 'numeric'));
+    tr.appendChild(cell(formatDateTime(c.fechaHoraInsert)));
+    tr.appendChild(cell(ESTATUS_LABELS[c.estatus] !== undefined ? ESTATUS_LABELS[c.estatus] : c.estatus));
+    altaTbody.appendChild(tr);
+  });
 }
 
 function renderTable() {
