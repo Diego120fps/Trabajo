@@ -6,7 +6,8 @@ var datasets = window.datasets;
 var datasetId = datasets[0];
 
 var FIELD_ITEM_INV = 'ITEM_NUMBER_SECOND';       // Código de item en el dataset de inventario
-var FIELD_LOCALIDAD = 'ILOC_BRANCH_PLANT';       // Branch/Plant = la "localidad" a sugerir
+var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';    // Branch/Plant: se usa solo para filtrar (BRANCH_CODES)
+var FIELD_LOCATION = 'ILOC_LOCATION';            // Localidad real a donde ir por el material
 var FIELD_QTY_DISPONIBLE = 'ILOC_QTY_ON_HAND';   // Cantidad disponible en esa localidad
 var FIELD_FIFO_ORDEN = 'ILOC_DATE_LAST_RECEIPT'; // Fecha de último recibo: se usa para ordenar FIFO
 var INVENTARIO_LIMIT = 5000;
@@ -559,11 +560,11 @@ function fetchFifoLines(doc) {
 }
 
 function fetchInventoryRows(itemCode) {
-  var fields = [FIELD_ITEM_INV, FIELD_LOCALIDAD, FIELD_QTY_DISPONIBLE, FIELD_FIFO_ORDEN];
+  var fields = [FIELD_ITEM_INV, FIELD_BRANCH_PLANT, FIELD_LOCATION, FIELD_QTY_DISPONIBLE, FIELD_FIFO_ORDEN];
   var itemFilter = buildFieldFilter(FIELD_ITEM_INV, itemCode);
 
   var queries = BRANCH_CODES.map(function (branchCode) {
-    var filter = itemFilter + ',' + buildFieldFilter(FIELD_LOCALIDAD, branchCode);
+    var filter = itemFilter + ',' + buildFieldFilter(FIELD_BRANCH_PLANT, branchCode);
     var query =
       '/data/v1/' + datasetId +
       '?fields=' + fields.join() +
@@ -597,7 +598,8 @@ function calcularLineasFifo(rows, cantidadNecesaria) {
     if (disponible <= 0) continue;
     var tomar = Math.min(disponible, restante);
     lineas.push({
-      localidad: rows[i][FIELD_LOCALIDAD],
+      branchPlant: rows[i][FIELD_BRANCH_PLANT],
+      localidad: rows[i][FIELD_LOCATION],
       cantidadTomar: tomar,
       disponible: disponible
     });
@@ -664,6 +666,7 @@ function renderFifoPanel(doc) {
     tabla.className = 'fifo-table';
     var thead = document.createElement('thead');
     var headTr = document.createElement('tr');
+    headTr.appendChild(th('Branch/Plant'));
     headTr.appendChild(th('Localidad'));
     headTr.appendChild(th('Cantidad a tomar'));
     headTr.appendChild(th('Disponible'));
@@ -673,6 +676,7 @@ function renderFifoPanel(doc) {
     var tb = document.createElement('tbody');
     estado.lineas.forEach(function (linea) {
       var lineaTr = document.createElement('tr');
+      lineaTr.appendChild(cell(linea.branchPlant));
       lineaTr.appendChild(cell(linea.localidad));
       lineaTr.appendChild(cell(formatNumber(linea.cantidadTomar), 'numeric'));
       lineaTr.appendChild(cell(formatNumber(linea.disponible), 'numeric'));
