@@ -1,26 +1,31 @@
 # Clear to Build (Magic ETL)
 
-Versión simplificada: `Plan` ya viene a nivel **Branch + Componente + Fecha +
-Cantidad requerida** (no hace falta BOM, OPOR ni Consumos). El Dataflow solo
-junta `Plan` contra `Inventory` (por Branch + Item) y calcula el balance
-corrido — inventario inicial menos la demanda acumulada, de la fecha más
-vieja a la más nueva, por cada Branch + Componente.
+`Plan` ya viene a nivel **Branch + Componente + Fecha + Cantidad requerida**
+(no hace falta BOM ni Consumos). El Dataflow junta `Plan` contra `Inventory`
+(por Branch + Item) y contra `Opor` (órdenes de compra por llegar, por
+Branch + Item + Fecha esperada), y calcula el balance corrido: **inventario
+inicial + compras acumuladas − demanda acumulada**, de la fecha más vieja a
+la más nueva, por cada Branch + Componente.
 
 ## Cómo armarlo en Magic ETL
 
 1. Crea un nuevo Dataflow (Magic ETL 2.0).
-2. Agrega los 2 datasets como inputs:
+2. Agrega los 3 datasets como inputs:
    - El dataset con la demanda ya explosionada (columnas `CPWF_COMPONENT_BRANCH`,
-     `CPWF_COMPONENT_2ND_ITEM_NUMBER`, `CPWF_UNITS_ORDER_TRANSACTION_QTY_2`,
+     `CPWF_COMPONENT_2ND_ITEM_NUMBER`, `CPWF_ITEM_NUMBER_SECOND`,
+     `CPWF_STOCKING_TYPE`, `CPWF_UNITS_ORDER_TRANSACTION_QTY_2`,
      `CPWF_DATE_REQUESTED`).
    - `GDLRealTruck.data.Domo_Inventory`
-3. Agrega un tile **SQL** (categoría Utility) y conéctale los 2 inputs.
+   - El dataset de órdenes de compra (columnas `PO_BUSINESS_UNIT`,
+     `PO_ITEM_NUMBER_SECOND`, `PO_DATE_SCHEDULED_PICK`,
+     `PO_UNITS_PRIMARY_QUANTITY_ORDERED`).
+3. Agrega un tile **SQL** (categoría Utility) y conéctale los 3 inputs.
    Dentro del tile, renombra cada input con el alias que usa `ctb.sql`:
-   `Plan`, `Inventory`.
+   `Plan`, `Inventory`, `Opor`.
 4. Pega el contenido de [`ctb.sql`](./ctb.sql) en el tile.
 5. Conecta la salida del tile a un tile **Output** y nómbralo, por ejemplo,
    `CTB_Result`.
-6. Programa el Dataflow con el mismo schedule (o uno posterior) al de los 2
+6. Programa el Dataflow con el mismo schedule (o uno posterior) al de los 3
    datasets de entrada, para que siempre corra con datos frescos.
 
 ## Columnas usadas
@@ -36,19 +41,27 @@ vieja a la más nueva, por cada Branch + Componente.
 | Inventory | `ILOC_BRANCH_PLANT` | Branch/Plant |
 | Inventory | `ITEM_NUMBER_SECOND` | Componente |
 | Inventory | `ILOC_QTY_ON_HAND` | Inventario |
+| Opor | `PO_BUSINESS_UNIT` | Branch/Plant |
+| Opor | `PO_ITEM_NUMBER_SECOND` | Componente |
+| Opor | `PO_DATE_SCHEDULED_PICK` | Fecha esperada de llegada |
+| Opor | `PO_UNITS_PRIMARY_QUANTITY_ORDERED` | Cantidad por llegar |
 
 Si tus datasets en Domo usan otros nombres, ajústalos directamente en
 `ctb.sql`.
 
 ## Notas
 
-- **Grano del resultado**: lo define `Plan` — un Branch+Componente que tiene
-  inventario pero ninguna demanda no aparece en el resultado (no hay nada
-  que proyectar para él). Un Branch+Componente con demanda pero sin fila en
-  Inventario toma inventario inicial = 0.
-- **Tipo de fecha**: si `CPWF_DATE_REQUESTED` ya viene como `DATE`, el
-  `CAST(... AS DATE)` es redundante pero inofensivo; si viene como texto en
-  otro formato, puede que necesites `STR_TO_DATE` en vez de `CAST`.
+- **Grano del resultado (`timeline`)**: ya no lo define solo `Plan` — es la
+  unión de fechas de `demand` y de `opor_agg` por Branch+Componente. Así,
+  una orden de compra que llega en una fecha sin demanda ese día sigue
+  generando una fila y subiendo el balance ese día (si solo se tomaran las
+  fechas de `Plan`, esas llegadas se "perderían" y el balance no las
+  reflejaría hasta la siguiente fecha con demanda). Un Branch+Componente
+  con demanda u OPOR pero sin fila en Inventario toma inventario inicial = 0.
+- **Tipo de fecha**: si `CPWF_DATE_REQUESTED` / `PO_DATE_SCHEDULED_PICK` ya
+  vienen como `DATE`, el `CAST(... AS DATE)` es redundante pero inofensivo;
+  si vienen como texto en otro formato, puede que necesites `STR_TO_DATE`
+  en vez de `CAST`.
 - **Orden final**: quedó `BU, Component, Fecha` (lectura cronológica por
   componente). Si prefieres priorizar primero los que tienen desabasto
   (`CTB = 'NO'`), cambia el `ORDER BY` final a `CTB, Fecha, ABS(Balance) DESC`.
@@ -70,8 +83,9 @@ El dataset `CTB_Result` queda con una fila por `BU + Component + Fecha`:
 | `StockingType` | Stocking Type del componente (`CPWF_STOCKING_TYPE`) |
 | `Fecha` | Fecha requerida |
 | `InventoryQty` | Inventario inicial del componente en ese Branch |
+| `OporQty` | Cantidad de orden(es) de compra que llegan en esa fecha |
 | `DemandQty` | Cantidad requerida en esa fecha |
-| `Balance` | Balance corrido (`InventoryQty` inicial − acumulado de `DemandQty`) |
+| `Balance` | Balance corrido (`InventoryQty` inicial + acumulado de `OporQty` − acumulado de `DemandQty`) |
 | `CTB` | `'YES'` si `Balance >= 0`, si no `'NO'` |
 | `Shortage` | `1` si `Balance < 0`, si no `0` (útil para sumar/graficar desabasto) |
 | `FirstShortageFecha` | Fecha más vieja en que ese `BU + Component` se pone en negativo (`9999-12-31` si nunca) |
@@ -100,7 +114,7 @@ Con esto, el brick de `domo-brick-clear-to-build` puede simplificarse a **un
 solo dataset** (`CTB_Result`): ya no necesita recalcular nada en el
 navegador, solo filtra por `BU`, colorea por `CTB` y exporta.
 
-**Pendiente de confirmar**: esta versión ya no usa `Opor` ni `Consumos` (los
-que sí estaban en la versión anterior, replicando el SP original). Si
-todavía quieres sumar OPOR como entrada adicional de inventario (o mostrar
-Consumo histórico como columna informativa), avisa para reincorporarlos.
+**Pendiente de confirmar**: esta versión todavía no usa `Consumos` (sí
+estaba en la versión original que replicaba el SP). Si quieres mostrar
+Consumo histórico como columna informativa (no afecta el balance), avisa
+para reincorporarlo.

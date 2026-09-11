@@ -1,14 +1,17 @@
 -- Clear to Build (Magic ETL SQL tile)
--- Version simplificada: Plan ya viene a nivel Branch + Componente + Fecha +
--- Cantidad requerida (no hace falta BOM, OPOR ni Consumos). Solo se junta
--- contra Inventario (por Branch + Item) y se calcula el balance corrido
--- (inventario inicial menos la demanda acumulada, de la fecha mas vieja a
--- la mas nueva).
+-- Plan ya viene a nivel Branch + Componente + Fecha + Cantidad requerida
+-- (no hace falta BOM ni Consumos). Se junta contra Inventario (por Branch +
+-- Item) y contra Opor (ordenes de compra por llegar) y se calcula el
+-- balance corrido: inventario inicial + compras acumuladas - demanda
+-- acumulada, de la fecha mas vieja a la mas nueva.
 --
--- Alias esperados de los 2 inputs del tile:
+-- Alias esperados de los 3 inputs del tile:
 --   Plan       -> dataset con CPWF_COMPONENT_BRANCH, CPWF_COMPONENT_2ND_ITEM_NUMBER,
+--                  CPWF_ITEM_NUMBER_SECOND, CPWF_STOCKING_TYPE,
 --                  CPWF_UNITS_ORDER_TRANSACTION_QTY_2, CPWF_DATE_REQUESTED
 --   Inventory  -> GDLRealTruck.data.Domo_Inventory
+--   Opor       -> dataset con PO_BUSINESS_UNIT, PO_ITEM_NUMBER_SECOND,
+--                  PO_DATE_SCHEDULED_PICK, PO_UNITS_PRIMARY_QUANTITY_ORDERED
 --
 -- Columnas usadas:
 --   Plan.CPWF_COMPONENT_BRANCH             -> Branch/Plant
@@ -20,6 +23,10 @@
 --   Inventory.ILOC_BRANCH_PLANT            -> Branch/Plant
 --   Inventory.ITEM_NUMBER_SECOND           -> Componente
 --   Inventory.ILOC_QTY_ON_HAND             -> Inventario
+--   Opor.PO_BUSINESS_UNIT                  -> Branch/Plant
+--   Opor.PO_ITEM_NUMBER_SECOND              -> Componente
+--   Opor.PO_DATE_SCHEDULED_PICK             -> Fecha esperada de llegada
+--   Opor.PO_UNITS_PRIMARY_QUANTITY_ORDERED  -> Cantidad por llegar
 
 WITH fg_rollup AS (
   -- Una fila por Componente: todos los FG que alguna vez comparten ese
@@ -52,6 +59,21 @@ demand AS (
     CAST(p.CPWF_DATE_REQUESTED AS DATE)
 ),
 
+opor_agg AS (
+  -- Ordenes de compra por llegar, por Branch + Componente + Fecha esperada.
+  SELECT
+    o.PO_BUSINESS_UNIT                           AS BU,
+    o.PO_ITEM_NUMBER_SECOND                      AS Component,
+    CAST(o.PO_DATE_SCHEDULED_PICK AS DATE)       AS Fecha,
+    SUM(o.PO_UNITS_PRIMARY_QUANTITY_ORDERED)     AS OporQty
+  FROM Opor o
+  WHERE o.PO_ITEM_NUMBER_SECOND IS NOT NULL
+  GROUP BY
+    o.PO_BUSINESS_UNIT,
+    o.PO_ITEM_NUMBER_SECOND,
+    CAST(o.PO_DATE_SCHEDULED_PICK AS DATE)
+),
+
 inv_agg AS (
   -- Inventario inicial por Branch + Componente.
   SELECT
@@ -62,31 +84,46 @@ inv_agg AS (
   GROUP BY ILOC_BRANCH_PLANT, ITEM_NUMBER_SECOND
 ),
 
+timeline AS (
+  -- Todas las fechas relevantes por Branch + Componente: donde hay demanda
+  -- O donde hay una orden de compra por llegar. Asi una OPOR que cae en una
+  -- fecha sin demanda sigue subiendo el balance ese dia (no se pierde).
+  SELECT BU, Component, Fecha FROM demand
+  UNION
+  SELECT BU, Component, Fecha FROM opor_agg
+),
+
 base AS (
-  -- La demanda manda el grano del resultado; si un Branch+Componente no
-  -- tiene fila en Inventario, su inventario inicial se toma como 0. El FG
-  -- se pega por Componente (fg_rollup), sin afectar el grano de "demand".
+  -- El timeline manda el grano del resultado. FG/StockingType se pegan por
+  -- Componente (fg_rollup); Inventario se pega por Branch+Componente (es
+  -- el mismo valor inicial en todas las fechas de ese grupo).
   SELECT
-    d.BU                          AS BU,
-    d.Component                  AS Component,
-    d.Fecha                       AS Fecha,
+    t.BU                          AS BU,
+    t.Component                  AS Component,
+    t.Fecha                       AS Fecha,
     f.FG                          AS FG,
     f.StockingType                AS StockingType,
-    d.DemandQty                   AS DemandQty,
-    COALESCE(i.InventoryQty, 0)   AS InventoryQty
-  FROM demand d
+    COALESCE(d.DemandQty, 0)      AS DemandQty,
+    COALESCE(o.OporQty, 0)        AS OporQty,
+    COALESCE(i.InventoryQty, 0)  AS InventoryQty
+  FROM timeline t
+  LEFT JOIN demand d
+    ON d.BU = t.BU AND d.Component = t.Component AND d.Fecha = t.Fecha
+  LEFT JOIN opor_agg o
+    ON o.BU = t.BU AND o.Component = t.Component AND o.Fecha = t.Fecha
   LEFT JOIN inv_agg i
-    ON i.BU = d.BU AND i.Component = d.Component
+    ON i.BU = t.BU AND i.Component = t.Component
   LEFT JOIN fg_rollup f
-    ON f.Component = d.Component
+    ON f.Component = t.Component
 ),
 
 calc AS (
-  -- Balance corrido: inventario inicial menos la demanda acumulada, de la
-  -- fecha mas vieja a la mas nueva, por cada Branch + Componente.
+  -- Balance corrido: inventario inicial + compras acumuladas - demanda
+  -- acumulada, de la fecha mas vieja a la mas nueva, por cada
+  -- Branch + Componente.
   SELECT
-    BU, Component, Fecha, FG, StockingType, DemandQty, InventoryQty,
-    InventoryQty - SUM(DemandQty) OVER (
+    BU, Component, Fecha, FG, StockingType, DemandQty, OporQty, InventoryQty,
+    InventoryQty + SUM(OporQty - DemandQty) OVER (
       PARTITION BY BU, Component
       ORDER BY Fecha
       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
@@ -117,6 +154,7 @@ SELECT
   c.StockingType,
   c.Fecha,
   c.InventoryQty,
+  c.OporQty,
   c.DemandQty,
   c.Balance,
   CASE WHEN c.Balance >= 0 THEN 'YES' ELSE 'NO' END AS CTB,
