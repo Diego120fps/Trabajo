@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Control de Camiones</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="topbar">
+      <div class="tabs">
+        <button id="tabBtnAlta" class="tab-btn active">Alta</button>
+        <button id="tabBtnCaja" class="tab-btn">Procesar Caja</button>
+        <button id="tabBtnSemaforo" class="tab-btn">Semáforo</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <!-- ================= TAB: ALTA ================= -->
+    <div id="tabAlta">
+
+      <div class="section-header">
+        <h3>Nuevo registro de camión</h3>
+      </div>
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="transportistaInput">Nombre transportista</label>
+          <input type="text" id="transportistaInput" placeholder="Nombre del transportista" />
+        </div>
+        <div class="filter-group">
+          <label for="placaInput">Placa / No. Económico</label>
+          <input type="text" id="placaInput" placeholder="Ej: ABC-1234" />
+        </div>
+        <div class="filter-actions">
+          <button id="btnCrear">Registrar camión</button>
+        </div>
+      </div>
+      <span class="hint">Folio, fecha/hora de creación y estatus (Pendiente) se asignan automáticamente. Rampa/Dock se asigna después en "Procesar Caja".</span>
+
+      <div class="section-header">
+        <h3>Camiones registrados</h3>
+        <button id="btnRefrescarAlta" class="secondary small">Refrescar</button>
+      </div>
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarAltaInput">Buscar (transportista / placa)</label>
+          <input type="text" id="buscarAltaInput" placeholder="Filtrar..." />
+        </div>
+        <div class="filter-group checkbox-group">
+          <label>
+            <input type="checkbox" id="mostrarCerradosAltaInput" checked />
+            Mostrar cerrados
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="altaTable">
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Transportista</th>
+              <th>Placa / No. Económico</th>
+              <th>Rampa / Dock</th>
+              <th>Fecha/Hora Creación</th>
+              <th>Estatus</th>
+              <th>Fecha/Hora Cierre</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= TAB: PROCESAR CAJA ================= -->
+    <div id="tabCaja" style="display:none;">
+
+      <div class="section-header">
+        <h3>Procesar Caja</h3>
+        <button id="btnRefrescarCaja" class="secondary small">Refrescar</button>
+      </div>
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarCajaInput">Buscar (transportista / placa)</label>
+          <input type="text" id="buscarCajaInput" placeholder="Filtrar..." />
+        </div>
+        <div class="filter-group checkbox-group">
+          <label>
+            <input type="checkbox" id="mostrarCerradosCajaInput" />
+            Mostrar cerrados
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="cajaTable">
+          <thead>
+            <tr>
+              <th>Folio</th>
+              <th>Transportista</th>
+              <th>Placa / No. Económico</th>
+              <th>Rampa / Dock</th>
+              <th>Fecha/Hora Creación</th>
+              <th>Estatus</th>
+              <th>Fecha/Hora Cierre</th>
+              <th>Acción</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= TAB: SEMÁFORO ================= -->
+    <div id="tabSemaforo" style="display:none;">
+
+      <div class="section-header">
+        <h3>Semáforo (camiones abiertos)</h3>
+      </div>
+      <span class="hint">Un card por cada registro abierto (Pendiente o Asignado), con el tiempo transcurrido desde su creación. Al cerrar un registro, su card desaparece.</span>
+
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarSemaforoInput">Buscar (transportista / placa)</label>
+          <input type="text" id="buscarSemaforoInput" placeholder="Filtrar..." />
+        </div>
+      </div>
+
+      <div id="semaforoEmpty" class="hint" style="display:none;">No hay camiones abiertos.</div>
+      <div id="semaforoCards" class="truck-cards"></div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
