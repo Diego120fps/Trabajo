@@ -20,18 +20,27 @@
 --   Inventory.ITEM_NUMBER_SECOND           -> Componente
 --   Inventory.ILOC_QTY_ON_HAND             -> Inventario
 
-WITH demand AS (
+WITH fg_rollup AS (
+  -- Una fila por Componente: todos los FG que alguna vez comparten ese
+  -- componente (en cualquier Branch/Fecha), concatenados por comas. Al
+  -- calcularse aparte (agrupado SOLO por Componente) no puede fanear las
+  -- filas de "demand" -- se le pega despues con un LEFT JOIN.
+  SELECT
+    CPWF_COMPONENT_2ND_ITEM_NUMBER AS Component,
+    GROUP_CONCAT(DISTINCT CPWF_ITEM_NUMBER_SECOND SEPARATOR ', ') AS FG
+  FROM Plan
+  WHERE CPWF_COMPONENT_2ND_ITEM_NUMBER IS NOT NULL
+  GROUP BY CPWF_COMPONENT_2ND_ITEM_NUMBER
+),
+
+demand AS (
   -- Demanda por Branch + Componente + Fecha (ya viene explosionada en Plan,
-  -- solo se suma por si hay varias filas para la misma combinacion). FG
-  -- concatena todos los modelos que comparten ese Componente en esa fecha.
-  -- GROUP_CONCAT sin ORDER BY: el tile SQL de Domo no soporta el ORDER BY
-  -- opcional dentro de GROUP_CONCAT (da "Syntax error in expression").
+  -- solo se suma por si hay varias filas para la misma combinacion).
   SELECT
     p.CPWF_COMPONENT_BRANCH                      AS BU,
     p.CPWF_COMPONENT_2ND_ITEM_NUMBER             AS Component,
     CAST(p.CPWF_DATE_REQUESTED AS DATE)          AS Fecha,
-    SUM(p.CPWF_UNITS_ORDER_TRANSACTION_QTY_2)    AS DemandQty,
-    GROUP_CONCAT(DISTINCT p.CPWF_ITEM_NUMBER_SECOND SEPARATOR ', ') AS FG
+    SUM(p.CPWF_UNITS_ORDER_TRANSACTION_QTY_2)    AS DemandQty
   FROM Plan p
   WHERE p.CPWF_COMPONENT_2ND_ITEM_NUMBER IS NOT NULL
   GROUP BY
@@ -52,17 +61,20 @@ inv_agg AS (
 
 base AS (
   -- La demanda manda el grano del resultado; si un Branch+Componente no
-  -- tiene fila en Inventario, su inventario inicial se toma como 0.
+  -- tiene fila en Inventario, su inventario inicial se toma como 0. El FG
+  -- se pega por Componente (fg_rollup), sin afectar el grano de "demand".
   SELECT
     d.BU                          AS BU,
     d.Component                  AS Component,
     d.Fecha                       AS Fecha,
-    d.FG                          AS FG,
+    f.FG                          AS FG,
     d.DemandQty                   AS DemandQty,
     COALESCE(i.InventoryQty, 0)   AS InventoryQty
   FROM demand d
   LEFT JOIN inv_agg i
     ON i.BU = d.BU AND i.Component = d.Component
+  LEFT JOIN fg_rollup f
+    ON f.Component = d.Component
 ),
 
 calc AS (

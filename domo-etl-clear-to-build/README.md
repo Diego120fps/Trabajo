@@ -51,6 +51,11 @@ Si tus datasets en Domo usan otros nombres, ajústalos directamente en
 - **Orden final**: quedó `BU, Component, Fecha` (lectura cronológica por
   componente). Si prefieres priorizar primero los que tienen desabasto
   (`CTB = 'NO'`), cambia el `ORDER BY` final a `CTB, Fecha, ABS(Balance) DESC`.
+- **FG concatenado (`fg_rollup`)**: se calcula en una CTE aparte, agrupada
+  **solo por Componente** (no por Componente+Fecha), y se le pega al
+  resultado con un `LEFT JOIN`. Hacerlo dentro del mismo `GROUP BY` que
+  agrega la demanda producía más filas de las esperadas; separarlo evita
+  que el `GROUP_CONCAT` afecte el grano de `demand`.
 
 ## Resultado
 
@@ -60,7 +65,7 @@ El dataset `CTB_Result` queda con una fila por `BU + Component + Fecha`:
 |---|---|
 | `BU` | Branch/Plant |
 | `Component` | Componente |
-| `FG` | Modelos (`CPWF_ITEM_NUMBER_SECOND`) que comparten este componente en esta fecha, concatenados |
+| `FG` | Todos los modelos (`CPWF_ITEM_NUMBER_SECOND`) que comparten este componente (en cualquier Branch/Fecha), concatenados por comas |
 | `Fecha` | Fecha requerida |
 | `InventoryQty` | Inventario inicial del componente en ese Branch |
 | `DemandQty` | Cantidad requerida en esa fecha |
