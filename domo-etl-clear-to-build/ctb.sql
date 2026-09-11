@@ -13,6 +13,7 @@
 -- Columnas usadas:
 --   Plan.CPWF_COMPONENT_BRANCH             -> Branch/Plant
 --   Plan.CPWF_COMPONENT_2ND_ITEM_NUMBER    -> Componente
+--   Plan.CPWF_ITEM_NUMBER_SECOND           -> FG (modelo/finished good)
 --   Plan.CPWF_UNITS_ORDER_TRANSACTION_QTY_2-> Cantidad requerida
 --   Plan.CPWF_DATE_REQUESTED               -> Fecha requerida
 --   Inventory.ILOC_BRANCH_PLANT            -> Branch/Plant
@@ -21,12 +22,16 @@
 
 WITH demand AS (
   -- Demanda por Branch + Componente + Fecha (ya viene explosionada en Plan,
-  -- solo se suma por si hay varias filas para la misma combinacion).
+  -- solo se suma por si hay varias filas para la misma combinacion). FG
+  -- concatena todos los modelos que comparten ese Componente en esa fecha.
+  -- GROUP_CONCAT sin ORDER BY: el tile SQL de Domo no soporta el ORDER BY
+  -- opcional dentro de GROUP_CONCAT (da "Syntax error in expression").
   SELECT
     p.CPWF_COMPONENT_BRANCH                      AS BU,
     p.CPWF_COMPONENT_2ND_ITEM_NUMBER             AS Component,
     CAST(p.CPWF_DATE_REQUESTED AS DATE)          AS Fecha,
-    SUM(p.CPWF_UNITS_ORDER_TRANSACTION_QTY_2)    AS DemandQty
+    SUM(p.CPWF_UNITS_ORDER_TRANSACTION_QTY_2)    AS DemandQty,
+    GROUP_CONCAT(DISTINCT p.CPWF_ITEM_NUMBER_SECOND SEPARATOR ', ') AS FG
   FROM Plan p
   WHERE p.CPWF_COMPONENT_2ND_ITEM_NUMBER IS NOT NULL
   GROUP BY
@@ -52,6 +57,7 @@ base AS (
     d.BU                          AS BU,
     d.Component                  AS Component,
     d.Fecha                       AS Fecha,
+    d.FG                          AS FG,
     d.DemandQty                   AS DemandQty,
     COALESCE(i.InventoryQty, 0)   AS InventoryQty
   FROM demand d
@@ -63,7 +69,7 @@ calc AS (
   -- Balance corrido: inventario inicial menos la demanda acumulada, de la
   -- fecha mas vieja a la mas nueva, por cada Branch + Componente.
   SELECT
-    BU, Component, Fecha, DemandQty, InventoryQty,
+    BU, Component, Fecha, FG, DemandQty, InventoryQty,
     InventoryQty - SUM(DemandQty) OVER (
       PARTITION BY BU, Component
       ORDER BY Fecha
@@ -75,6 +81,7 @@ calc AS (
 SELECT
   BU,
   Component,
+  FG,
   Fecha,
   InventoryQty,
   DemandQty,

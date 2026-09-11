@@ -29,6 +29,7 @@ vieja a la más nueva, por cada Branch + Componente.
 |---|---|---|
 | Plan | `CPWF_COMPONENT_BRANCH` | Branch/Plant |
 | Plan | `CPWF_COMPONENT_2ND_ITEM_NUMBER` | Componente |
+| Plan | `CPWF_ITEM_NUMBER_SECOND` | FG (modelo/finished good) |
 | Plan | `CPWF_UNITS_ORDER_TRANSACTION_QTY_2` | Cantidad requerida |
 | Plan | `CPWF_DATE_REQUESTED` | Fecha requerida |
 | Inventory | `ILOC_BRANCH_PLANT` | Branch/Plant |
@@ -59,6 +60,7 @@ El dataset `CTB_Result` queda con una fila por `BU + Component + Fecha`:
 |---|---|
 | `BU` | Branch/Plant |
 | `Component` | Componente |
+| `FG` | Modelos (`CPWF_ITEM_NUMBER_SECOND`) que comparten este componente en esta fecha, concatenados |
 | `Fecha` | Fecha requerida |
 | `InventoryQty` | Inventario inicial del componente en ese Branch |
 | `DemandQty` | Cantidad requerida en esa fecha |
