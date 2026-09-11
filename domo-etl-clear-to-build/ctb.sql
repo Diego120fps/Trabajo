@@ -88,17 +88,36 @@ calc AS (
       ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
     ) AS Balance
   FROM base
+),
+
+shortage_rollup AS (
+  -- Una fila por Branch + Componente: la fecha MAS VIEJA en la que ese
+  -- componente se pone en negativo. Sirve para el "efecto cascada" en el
+  -- pivot de Analyzer -- ordenar las filas (Componente) por esta fecha hace
+  -- que los que se desabastecen primero queden arriba, y a medida que
+  -- avanzas por columnas de fecha se ve el escalon de negativos subiendo.
+  -- Si nunca se pone negativo, se le pone una fecha centinela muy lejana
+  -- para que caiga al final del orden ascendente.
+  SELECT
+    BU, Component,
+    MIN(Fecha) AS FirstShortageFecha
+  FROM calc
+  WHERE Balance < 0
+  GROUP BY BU, Component
 )
 
 SELECT
-  BU,
-  Component,
-  FG,
-  Fecha,
-  InventoryQty,
-  DemandQty,
-  Balance,
-  CASE WHEN Balance >= 0 THEN 'YES' ELSE 'NO' END AS CTB,
-  CASE WHEN Balance < 0 THEN 1 ELSE 0 END AS Shortage
-FROM calc
-ORDER BY BU, Component, Fecha;
+  c.BU,
+  c.Component,
+  c.FG,
+  c.Fecha,
+  c.InventoryQty,
+  c.DemandQty,
+  c.Balance,
+  CASE WHEN c.Balance >= 0 THEN 'YES' ELSE 'NO' END AS CTB,
+  CASE WHEN c.Balance < 0 THEN 1 ELSE 0 END AS Shortage,
+  COALESCE(s.FirstShortageFecha, CAST('9999-12-31' AS DATE)) AS FirstShortageFecha
+FROM calc c
+LEFT JOIN shortage_rollup s
+  ON s.BU = c.BU AND s.Component = c.Component
+ORDER BY c.BU, c.Component, c.Fecha;

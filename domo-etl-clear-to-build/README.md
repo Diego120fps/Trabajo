@@ -72,6 +72,27 @@ El dataset `CTB_Result` queda con una fila por `BU + Component + Fecha`:
 | `Balance` | Balance corrido (`InventoryQty` inicial − acumulado de `DemandQty`) |
 | `CTB` | `'YES'` si `Balance >= 0`, si no `'NO'` |
 | `Shortage` | `1` si `Balance < 0`, si no `0` (útil para sumar/graficar desabasto) |
+| `FirstShortageFecha` | Fecha más vieja en que ese `BU + Component` se pone en negativo (`9999-12-31` si nunca) |
+
+### Efecto cascada en el pivot de Analyzer
+
+Para el pivot (rows = Componente, columns = Fecha, values = SUM de Balance),
+Domo **no** deja usar el campo de "Sort" normal del Analyzer en pivot
+tables — hay que ordenar con las flechitas junto al encabezado de la fila
+(o un Beast Mode puesto directamente en las propiedades de orden del
+pivot), no desde la pestaña de Sort general.
+
+1. Agrega `FirstShortageFecha` al pivot (aunque sea oculta/sin mostrar, o
+   como una columna extra de valores con agregación MIN).
+2. Usa la flecha de orden junto al encabezado de la fila "Componente" y
+   ordénalo por `FirstShortageFecha` ascendente.
+3. Como es la misma fecha repetida en todas las filas de un mismo
+   Componente (viene de un rollup, no cambia por Fecha), el pivot queda
+   ordenado por "qué tan pronto se desabastece" cada componente — al leer
+   de arriba hacia abajo y de izquierda a derecha vas viendo subir el
+   escalón de negativos (el efecto cascada).
+4. Los que nunca se desabastecen quedan al final (fecha centinela
+   `9999-12-31`).
 
 Con esto, el brick de `domo-brick-clear-to-build` puede simplificarse a **un
 solo dataset** (`CTB_Result`): ya no necesita recalcular nada en el
