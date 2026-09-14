@@ -18,6 +18,15 @@ var COLLECTION = 'comentarios_etl';
 var DOCS_URL = '/domo/datastores/v1/collections/' + COLLECTION + '/documents';
 var COMENTARIOS_FIELD = 'comentarios';
 
+// "Issue" es el otro campo editable a mano: un select de catálogo cerrado
+// (no texto libre), igual que comentarios se conserva entre sincronizaciones.
+var ISSUE_FIELD = 'issue';
+var ISSUE_OPTIONS = ['Designed Changed', 'Shortage', 'In Development'];
+
+// Campos editables a mano que NUNCA vienen del ETL: se excluyen de las
+// columnas dinámicas y de la comparación de cambios del merge.
+var EDITABLE_FIELDS = [COMENTARIOS_FIELD, ISSUE_FIELD];
+
 // Paginación al leer el dataset ETL (Data API) y AppDB.
 var ETL_PAGE_SIZE = 5000;
 var ETL_MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas
@@ -44,6 +53,7 @@ var dataTable = document.getElementById('dataTable');
 var allDocs = []; // últimos documentos de AppDB tras la sincronización: [{id, content}, ...]
 var editedComentarios = {}; // doc.id -> valor en edición (para no perderlo al re-renderizar)
 var savingComentarios = {}; // doc.id -> true mientras se guarda ese comentario
+var savingIssue = {}; // doc.id -> true mientras se guarda ese issue
 
 init();
 
@@ -79,7 +89,8 @@ function ensureCollection() {
       schema: {
         columns: [
           { name: FIELD_KEY, type: 'STRING' },
-          { name: COMENTARIOS_FIELD, type: 'STRING' }
+          { name: COMENTARIOS_FIELD, type: 'STRING' },
+          { name: ISSUE_FIELD, type: 'STRING' }
         ]
       }
     })
@@ -223,12 +234,14 @@ function aplicarMerge(etlRows, appDocs) {
   return runPool(inserts, function (etlRow) {
     var content = Object.assign({}, etlRow);
     content[COMENTARIOS_FIELD] = '';
+    content[ISSUE_FIELD] = '';
     return domo.post(DOCS_URL, { content: content });
   })
     .then(function () {
       return runPool(updates, function (item) {
         var content = Object.assign({}, item.etlRow);
         content[COMENTARIOS_FIELD] = item.doc.content[COMENTARIOS_FIELD] || '';
+        content[ISSUE_FIELD] = item.doc.content[ISSUE_FIELD] || '';
         return domo.put(DOCS_URL + '/' + item.doc.id, { content: content });
       });
     })
@@ -240,12 +253,13 @@ function aplicarMerge(etlRows, appDocs) {
 }
 
 // Compara todos los campos del ETL (menos la llave, que ya coincidió, y
-// obviamente menos "comentarios", que no viene del ETL) contra lo guardado.
+// obviamente menos los campos editables a mano, que no vienen del ETL)
+// contra lo guardado.
 function etlRowChanged(etlRow, content) {
   var a = JSON.stringify(sortedEntries(etlRow));
-  var contentSinComentarios = Object.assign({}, content);
-  delete contentSinComentarios[COMENTARIOS_FIELD];
-  var b = JSON.stringify(sortedEntries(contentSinComentarios));
+  var contentSinEditables = Object.assign({}, content);
+  EDITABLE_FIELDS.forEach(function (f) { delete contentSinEditables[f]; });
+  var b = JSON.stringify(sortedEntries(contentSinEditables));
   return a !== b;
 }
 
@@ -315,7 +329,7 @@ function computeColumns(docs) {
   var seen = {};
   docs.forEach(function (doc) {
     Object.keys(doc.content).forEach(function (k) {
-      if (k === COMENTARIOS_FIELD) return;
+      if (EDITABLE_FIELDS.indexOf(k) !== -1) return;
       if (!seen[k]) {
         seen[k] = true;
         cols.push(k);
@@ -338,6 +352,9 @@ function renderTable() {
     th.textContent = col;
     headerRow.appendChild(th);
   });
+  var thIssue = document.createElement('th');
+  thIssue.textContent = 'Issue';
+  headerRow.appendChild(thIssue);
   var thComentarios = document.createElement('th');
   thComentarios.textContent = 'Comentarios';
   headerRow.appendChild(thComentarios);
@@ -367,7 +384,7 @@ function renderTable() {
   if (rows.length === 0) {
     var noMatchTr = document.createElement('tr');
     var noMatchTd = document.createElement('td');
-    noMatchTd.colSpan = columns.length + 1;
+    noMatchTd.colSpan = columns.length + 2;
     noMatchTd.className = 'empty-cell';
     noMatchTd.textContent = 'Sin resultados para el filtro actual.';
     noMatchTr.appendChild(noMatchTd);
@@ -380,6 +397,7 @@ function renderTable() {
     columns.forEach(function (col) {
       tr.appendChild(cell(doc.content[col]));
     });
+    tr.appendChild(buildIssueCell(doc));
     tr.appendChild(buildComentariosCell(doc));
     tbody.appendChild(tr);
   });
@@ -413,6 +431,55 @@ function buildComentariosCell(doc) {
   wrapper.appendChild(btnGuardar);
   td.appendChild(wrapper);
   return td;
+}
+
+// El select de Issue guarda solo al cambiar (es una elección de catálogo
+// cerrado, no texto libre): no necesita un botón "Guardar" aparte.
+function buildIssueCell(doc) {
+  var td = document.createElement('td');
+
+  var select = document.createElement('select');
+  select.disabled = !!savingIssue[doc.id];
+
+  var optionVacia = document.createElement('option');
+  optionVacia.value = '';
+  optionVacia.textContent = 'Sin issue';
+  select.appendChild(optionVacia);
+
+  ISSUE_OPTIONS.forEach(function (opcion) {
+    var option = document.createElement('option');
+    option.value = opcion;
+    option.textContent = opcion;
+    select.appendChild(option);
+  });
+
+  select.value = doc.content[ISSUE_FIELD] || '';
+  select.addEventListener('change', function () {
+    guardarIssue(doc, select.value);
+  });
+
+  td.appendChild(select);
+  return td;
+}
+
+function guardarIssue(doc, nuevoValor) {
+  savingIssue[doc.id] = true;
+  renderTable();
+
+  var content = Object.assign({}, doc.content);
+  content[ISSUE_FIELD] = nuevoValor;
+
+  domo
+    .put(DOCS_URL + '/' + doc.id, { content: content })
+    .then(function () {
+      delete savingIssue[doc.id];
+      return cargarDocsAppDb();
+    })
+    .catch(function (err) {
+      delete savingIssue[doc.id];
+      showStatus('No se pudo guardar el issue: ' + describeError(err));
+      renderTable();
+    });
 }
 
 function guardarComentario(doc, nuevoValor) {

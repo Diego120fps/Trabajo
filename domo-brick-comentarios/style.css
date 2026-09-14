@@ -201,3 +201,23 @@ td.empty-cell {
   border-color: #0b6ecc;
   box-shadow: 0 0 0 2px rgba(11, 110, 204, 0.15);
 }
+
+tbody td select {
+  min-width: 160px;
+  padding: 5px 8px;
+  border: 1px solid #cfd4da;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 13px;
+}
+
+tbody td select:focus {
+  outline: none;
+  border-color: #0b6ecc;
+  box-shadow: 0 0 0 2px rgba(11, 110, 204, 0.15);
+}
+
+tbody td select:disabled {
+  background: #f4f5f7;
+  color: #9aa1a9;
+}
