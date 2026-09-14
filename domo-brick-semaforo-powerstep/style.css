@@ -109,17 +109,6 @@ button.small {
   border-radius: 6px;
   padding: 16px;
   text-align: center;
-  cursor: pointer;
-  transition: box-shadow 0.15s ease, transform 0.15s ease;
-}
-
-.kpi-card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
-  transform: translateY(-1px);
-}
-
-.kpi-card.selected-card {
-  box-shadow: 0 0 0 2px rgba(11, 110, 204, 0.35);
 }
 
 .kpi-label {

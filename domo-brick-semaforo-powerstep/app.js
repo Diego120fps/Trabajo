@@ -8,12 +8,31 @@ var datasetId = datasets[0];
 var FIELD_CATEGORY_PARENT = 'CategoryParent';
 var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';
 var FIELD_RACK = 'Rack';
+var FIELD_ITEM = 'ITEM_NUMBER_SECOND';
 var FIELD_ON_HAND = 'ON_HAND';
 var FIELD_MINIMO = 'Minimo';
+var FIELD_MAXIMO = 'Maximo';
 
-// Columnas que se traen del dataset. Agrega aquí más si las quieres ver
-// en la tabla de detalle (ej. Item, Descripción, etc.).
-var FIELDS = [FIELD_CATEGORY_PARENT, FIELD_BRANCH_PLANT, FIELD_RACK, FIELD_ON_HAND, FIELD_MINIMO];
+// Todas las columnas que se piden al dataset: las de filtro más las que se
+// muestran en la tabla.
+var QUERY_FIELDS = [
+  FIELD_CATEGORY_PARENT,
+  FIELD_BRANCH_PLANT,
+  FIELD_RACK,
+  FIELD_ITEM,
+  FIELD_ON_HAND,
+  FIELD_MINIMO,
+  FIELD_MAXIMO
+];
+
+// Columnas de la tabla de detalle (en orden), con el encabezado que se
+// quiere mostrar. "%" y "Semaforo" son columnas calculadas, se agregan aparte.
+var DISPLAY_COLUMNS = [
+  { field: FIELD_ITEM, label: 'ITEM' },
+  { field: FIELD_ON_HAND, label: 'ON_HAND' },
+  { field: FIELD_MINIMO, label: 'MIN' },
+  { field: FIELD_MAXIMO, label: 'MAX' }
+];
 
 // ---------- Filtros fijos ----------
 var FILTER_CATEGORY_PARENT = 'Powerstep';
@@ -38,6 +57,9 @@ var SEMAFORO_CONFIG = [
   { key: 'Verde', label: 'Verde', color: '#27ae60' }
 ];
 
+var SEMAFORO_COLOR_BY_KEY = {};
+SEMAFORO_CONFIG.forEach(function (cfg) { SEMAFORO_COLOR_BY_KEY[cfg.key] = cfg.color; });
+
 var PAGE_SIZE = 5000;
 var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
 
@@ -47,28 +69,25 @@ var loadingEl = document.getElementById('loading');
 var btnRefrescar = document.getElementById('btnRefrescar');
 var btnExportDetail = document.getElementById('btnExportDetail');
 var detailTable = document.getElementById('detailTable');
-var detailTitle = document.getElementById('detailTitle');
 
-// Filas ya filtradas (Powerstep + planta 200 + prefijos de Rack) con su
-// Semáforo calculado, agrupadas por color para pintar tarjetas y detalle.
-var rowsByColor = {};
+// Filas ya filtradas (Powerstep + planta 200 + prefijos de Rack) con
+// Semáforo calculable, listas para pintar tarjetas y la tabla completa.
 var lastDetailRows = [];
-var lastDetailColor = null;
 
 init();
 
 function init() {
   btnRefrescar.addEventListener('click', loadAndRender);
   btnExportDetail.addEventListener('click', exportDetailToExcel);
-  renderCards({}); // tarjetas en 0 mientras carga
-  renderDetail([], null);
+  renderCards({});
+  renderDetail([]);
   loadAndRender();
 }
 
 function loadAndRender() {
   setStatus('');
   showLoading(true);
-  renderDetail([], null);
+  renderDetail([]);
 
   var filter = combineFilters([
     buildFieldFilter(FIELD_CATEGORY_PARENT, FILTER_CATEGORY_PARENT),
@@ -80,8 +99,15 @@ function loadAndRender() {
       return matchesRackPrefix(row[FIELD_RACK]);
     });
 
-    rowsByColor = groupByColor(rackFiltered);
-    renderCards(rowsByColor);
+    // Solo entran a tarjetas y tabla las filas con un Semáforo calculable
+    // (ON_HAND y Minimo numéricos).
+    var withSemaforo = rackFiltered.filter(function (row) {
+      return calcSemaforo(row) !== null;
+    });
+
+    lastDetailRows = withSemaforo;
+    renderCards(groupByColor(withSemaforo));
+    renderDetail(withSemaforo);
     showLoading(false);
   }, function (err) {
     logError('Error cargando el semáforo', err);
@@ -161,40 +187,22 @@ function renderCards(groups) {
 
     card.appendChild(label);
     card.appendChild(value);
-
-    card.addEventListener('click', function () {
-      Array.prototype.forEach.call(cardsEl.querySelectorAll('.kpi-card'), function (c) {
-        c.classList.remove('selected-card');
-      });
-      card.classList.add('selected-card');
-      showDetailFor(cfg.key);
-    });
-
     cardsEl.appendChild(card);
   });
 }
 
-// ---------- Detalle: filas del color seleccionado ----------
+// ---------- Tabla de detalle: todas las filas, con el td de Semáforo pintado ----------
 
-function showDetailFor(colorKey) {
-  var rows = rowsByColor[colorKey] || [];
-  lastDetailRows = rows;
-  lastDetailColor = colorKey;
-  renderDetail(rows, colorKey);
-}
-
-function renderDetail(rows, colorKey) {
-  detailTitle.textContent = colorKey ? ('Detalle: ' + colorKey) : 'Detalle';
-
+function renderDetail(rows) {
   var thead = detailTable.querySelector('thead');
   var tbody = detailTable.querySelector('tbody');
   thead.innerHTML = '';
   tbody.innerHTML = '';
 
-  var columns = FIELDS.concat(['%', 'Semaforo']);
+  var headerLabels = DISPLAY_COLUMNS.map(function (col) { return col.label; }).concat(['%', 'Semaforo']);
 
   var headerRow = document.createElement('tr');
-  columns.forEach(function (text) {
+  headerLabels.forEach(function (text) {
     var th = document.createElement('th');
     th.textContent = text;
     headerRow.appendChild(th);
@@ -204,9 +212,9 @@ function renderDetail(rows, colorKey) {
   if (!rows || rows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
-    td.colSpan = columns.length;
+    td.colSpan = headerLabels.length;
     td.className = 'empty-cell';
-    td.textContent = 'Da clic en una tarjeta para ver su detalle.';
+    td.textContent = 'Sin datos para el filtro actual.';
     emptyRow.appendChild(td);
     tbody.appendChild(emptyRow);
     return;
@@ -214,20 +222,28 @@ function renderDetail(rows, colorKey) {
 
   rows.forEach(function (row) {
     var tr = document.createElement('tr');
-    FIELDS.forEach(function (field) {
+
+    DISPLAY_COLUMNS.forEach(function (col) {
       var tdEl = document.createElement('td');
-      tdEl.textContent = row[field];
+      tdEl.textContent = row[col.field];
       tr.appendChild(tdEl);
     });
+
     var pct = calcPercent(row);
     var tdPercent = document.createElement('td');
     tdPercent.className = 'numeric';
     tdPercent.textContent = pct === null ? '' : pct.toLocaleString('es-MX', { style: 'percent', minimumFractionDigits: 1 });
     tr.appendChild(tdPercent);
 
+    var color = calcSemaforo(row);
     var tdSemaforo = document.createElement('td');
-    tdSemaforo.textContent = calcSemaforo(row);
+    tdSemaforo.textContent = color;
+    tdSemaforo.style.backgroundColor = SEMAFORO_COLOR_BY_KEY[color] || '';
+    tdSemaforo.style.color = '#fff';
+    tdSemaforo.style.fontWeight = '600';
+    tdSemaforo.style.textAlign = 'center';
     tr.appendChild(tdSemaforo);
+
     tbody.appendChild(tr);
   });
 }
@@ -236,16 +252,16 @@ function renderDetail(rows, colorKey) {
 
 function exportDetailToExcel() {
   if (!lastDetailRows || lastDetailRows.length === 0) {
-    setStatus('No hay detalle para exportar. Da clic en una tarjeta primero.');
+    setStatus('No hay datos para exportar.');
     return;
   }
 
-  var headers = FIELDS.concat(['%', 'Semaforo']);
+  var headers = DISPLAY_COLUMNS.map(function (col) { return col.label; }).concat(['%', 'Semaforo']);
   var rows = lastDetailRows.map(function (row) {
-    return FIELDS.map(function (field) { return row[field]; }).concat([calcPercent(row), calcSemaforo(row)]);
+    return DISPLAY_COLUMNS.map(function (col) { return row[col.field]; }).concat([calcPercent(row), calcSemaforo(row)]);
   });
 
-  downloadCSV('semaforo_' + lastDetailColor + '.csv', toCSV(headers, rows));
+  downloadCSV('semaforo_powerstep.csv', toCSV(headers, rows));
 }
 
 function toCSV(headers, rows) {
@@ -295,8 +311,8 @@ function combineFilters(parts) {
 // de las pedidas (fin de los datos). orderby fijo es indispensable para
 // que offset/limit recorra TODO el conjunto sin huecos ni repeticiones.
 function fetchAllFilteredRows(filter, onDone, onError) {
-  var fieldsParam = FIELDS.map(encodeURIComponent).join();
-  var orderbyField = encodeURIComponent(FIELD_RACK);
+  var fieldsParam = QUERY_FIELDS.map(encodeURIComponent).join();
+  var orderbyField = encodeURIComponent(FIELD_ITEM);
   var collected = [];
   var offset = 0;
   var page = 0;
