@@ -23,8 +23,14 @@ var COMENTARIOS_FIELD = 'comentarios';
 var ISSUE_FIELD = 'issue';
 var ISSUE_OPTIONS = ['Designed Changed', 'Shortage', 'In Development'];
 
+// Más campos editables a mano: dos fechas y un texto libre. Se guardan y se
+// conservan igual que Comentarios/Issue.
+var FAB_DATE_FIELD = 'estimatedFabDate';
+var PLAN_DATE_FIELD = 'planDate';
+var MISSING_COMPONENT_FIELD = 'missingComponent';
+
 // "Observaciones" también es una columna que NO viene tal cual del ETL,
-// pero a diferencia de Comentarios/Issue no la captura una persona: se
+// pero a diferencia de los campos anteriores no la captura una persona: se
 // recalcula en cada sincronización a partir de los campos del ETL (ver
 // calcularObservaciones más abajo), así que siempre refleja los valores
 // más recientes del dataset.
@@ -33,7 +39,7 @@ var OBSERVACIONES_FIELD = 'observaciones';
 // Campos editables a mano que NUNCA vienen del ETL: se excluyen de las
 // columnas dinámicas y de la comparación de cambios del merge, y se
 // conservan tal cual entre sincronizaciones.
-var EDITABLE_FIELDS = [COMENTARIOS_FIELD, ISSUE_FIELD];
+var EDITABLE_FIELDS = [COMENTARIOS_FIELD, ISSUE_FIELD, FAB_DATE_FIELD, PLAN_DATE_FIELD, MISSING_COMPONENT_FIELD];
 
 // Todos los campos que no vienen directamente del ETL (editables +
 // calculados): se excluyen de la comparación "¿cambió esta fila?" del merge,
@@ -125,7 +131,11 @@ var dataTable = document.getElementById('dataTable');
 var allDocs = []; // últimos documentos de AppDB tras la sincronización: [{id, content}, ...]
 var editedComentarios = {}; // doc.id -> valor en edición (para no perderlo al re-renderizar)
 var savingComentarios = {}; // doc.id -> true mientras se guarda ese comentario
+var editedMissingComponent = {};
+var savingMissingComponent = {};
 var savingIssue = {}; // doc.id -> true mientras se guarda ese issue
+var savingFabDate = {};
+var savingPlanDate = {};
 
 init();
 
@@ -163,7 +173,13 @@ function ensureCollection() {
           { name: FIELD_KEY, type: 'STRING' },
           { name: COMENTARIOS_FIELD, type: 'STRING' },
           { name: ISSUE_FIELD, type: 'STRING' },
-          { name: OBSERVACIONES_FIELD, type: 'STRING' }
+          { name: OBSERVACIONES_FIELD, type: 'STRING' },
+          // Fechas como STRING 'YYYY-MM-DD' (el valor nativo de <input
+          // type="date">): evita depender de si esta instancia de AppDB
+          // soporta un tipo DATE dedicado.
+          { name: FAB_DATE_FIELD, type: 'STRING' },
+          { name: PLAN_DATE_FIELD, type: 'STRING' },
+          { name: MISSING_COMPONENT_FIELD, type: 'STRING' }
         ]
       }
     })
@@ -308,14 +324,16 @@ function aplicarMerge(etlRows, appDocs) {
     var content = Object.assign({}, etlRow);
     content[COMENTARIOS_FIELD] = '';
     content[ISSUE_FIELD] = '';
+    content[FAB_DATE_FIELD] = '';
+    content[PLAN_DATE_FIELD] = '';
+    content[MISSING_COMPONENT_FIELD] = '';
     content[OBSERVACIONES_FIELD] = calcularObservaciones(etlRow);
     return domo.post(DOCS_URL, { content: content });
   })
     .then(function () {
       return runPool(updates, function (item) {
         var content = Object.assign({}, item.etlRow);
-        content[COMENTARIOS_FIELD] = item.doc.content[COMENTARIOS_FIELD] || '';
-        content[ISSUE_FIELD] = item.doc.content[ISSUE_FIELD] || '';
+        EDITABLE_FIELDS.forEach(function (f) { content[f] = item.doc.content[f] || ''; });
         content[OBSERVACIONES_FIELD] = calcularObservaciones(item.etlRow);
         return domo.put(DOCS_URL + '/' + item.doc.id, { content: content });
       });
@@ -474,6 +492,15 @@ function renderTable() {
   var thIssue = document.createElement('th');
   thIssue.textContent = 'Issue';
   headerRow.appendChild(thIssue);
+  var thFabDate = document.createElement('th');
+  thFabDate.textContent = 'Estimated Fab Date';
+  headerRow.appendChild(thFabDate);
+  var thPlanDate = document.createElement('th');
+  thPlanDate.textContent = 'Plan date';
+  headerRow.appendChild(thPlanDate);
+  var thMissingComponent = document.createElement('th');
+  thMissingComponent.textContent = 'Missing component';
+  headerRow.appendChild(thMissingComponent);
   var thComentarios = document.createElement('th');
   thComentarios.textContent = 'Comentarios';
   headerRow.appendChild(thComentarios);
@@ -489,7 +516,8 @@ function renderTable() {
       .indexOf(filtro) !== -1;
   });
 
-  var totalColumnas = DISPLAY_COLUMNS.length + 3; // + Observaciones + Issue + Comentarios
+  // + Observaciones + Issue + Estimated Fab Date + Plan date + Missing component + Comentarios
+  var totalColumnas = DISPLAY_COLUMNS.length + 6;
 
   if (allDocs.length === 0) {
     var emptyTr = document.createElement('tr');
@@ -520,39 +548,104 @@ function renderTable() {
     });
     tr.appendChild(cell(doc.content[OBSERVACIONES_FIELD]));
     tr.appendChild(buildIssueCell(doc));
-    tr.appendChild(buildComentariosCell(doc));
+    tr.appendChild(buildDateCell(doc, FAB_DATE_FIELD, savingFabDate));
+    tr.appendChild(buildDateCell(doc, PLAN_DATE_FIELD, savingPlanDate));
+    tr.appendChild(buildTextFieldCell(doc, MISSING_COMPONENT_FIELD, editedMissingComponent, savingMissingComponent, 'Sin componente faltante'));
+    tr.appendChild(buildTextFieldCell(doc, COMENTARIOS_FIELD, editedComentarios, savingComentarios, 'Sin comentarios'));
     tbody.appendChild(tr);
   });
 }
 
-function buildComentariosCell(doc) {
+// Celda de texto libre genérica (Comentarios, Missing component): requiere
+// dar clic en "Guardar" (a diferencia del select de Issue o las fechas, que
+// guardan solo al cambiar), para no mandar una llamada por cada tecla.
+function buildTextFieldCell(doc, field, editedMap, savingMap, placeholder) {
   var td = document.createElement('td');
   var wrapper = document.createElement('div');
   wrapper.className = 'inline-action';
 
-  var valorActual = editedComentarios[doc.id] !== undefined ? editedComentarios[doc.id] : (doc.content[COMENTARIOS_FIELD] || '');
+  var valorGuardado = doc.content[field] || '';
+  var valorActual = editedMap[doc.id] !== undefined ? editedMap[doc.id] : valorGuardado;
 
   var input = document.createElement('input');
   input.type = 'text';
-  input.placeholder = 'Sin comentarios';
+  input.placeholder = placeholder;
   input.value = valorActual;
   input.addEventListener('input', function () {
-    editedComentarios[doc.id] = input.value;
-    btnGuardar.disabled = input.value === (doc.content[COMENTARIOS_FIELD] || '');
+    editedMap[doc.id] = input.value;
+    btnGuardar.disabled = input.value === valorGuardado;
   });
 
   var btnGuardar = document.createElement('button');
   btnGuardar.className = 'small';
-  btnGuardar.textContent = savingComentarios[doc.id] ? 'Guardando...' : 'Guardar';
-  btnGuardar.disabled = !!savingComentarios[doc.id] || valorActual === (doc.content[COMENTARIOS_FIELD] || '');
+  btnGuardar.textContent = savingMap[doc.id] ? 'Guardando...' : 'Guardar';
+  btnGuardar.disabled = !!savingMap[doc.id] || valorActual === valorGuardado;
   btnGuardar.addEventListener('click', function () {
-    guardarComentario(doc, input.value);
+    guardarCampoTexto(doc, field, input.value, editedMap, savingMap);
   });
 
   wrapper.appendChild(input);
   wrapper.appendChild(btnGuardar);
   td.appendChild(wrapper);
   return td;
+}
+
+function guardarCampoTexto(doc, field, nuevoValor, editedMap, savingMap) {
+  savingMap[doc.id] = true;
+  renderTable();
+
+  var content = Object.assign({}, doc.content);
+  content[field] = nuevoValor;
+
+  domo
+    .put(DOCS_URL + '/' + doc.id, { content: content })
+    .then(function () {
+      delete editedMap[doc.id];
+      delete savingMap[doc.id];
+      return cargarDocsAppDb();
+    })
+    .catch(function (err) {
+      delete savingMap[doc.id];
+      showStatus('No se pudo guardar: ' + describeError(err));
+      renderTable();
+    });
+}
+
+// Fechas (Estimated Fab Date, Plan date): igual que el select de Issue,
+// guardan solo al cambiar, sin botón "Guardar" aparte.
+function buildDateCell(doc, field, savingMap) {
+  var td = document.createElement('td');
+
+  var input = document.createElement('input');
+  input.type = 'date';
+  input.disabled = !!savingMap[doc.id];
+  input.value = doc.content[field] || '';
+  input.addEventListener('change', function () {
+    guardarCampoFecha(doc, field, input.value, savingMap);
+  });
+
+  td.appendChild(input);
+  return td;
+}
+
+function guardarCampoFecha(doc, field, nuevoValor, savingMap) {
+  savingMap[doc.id] = true;
+  renderTable();
+
+  var content = Object.assign({}, doc.content);
+  content[field] = nuevoValor;
+
+  domo
+    .put(DOCS_URL + '/' + doc.id, { content: content })
+    .then(function () {
+      delete savingMap[doc.id];
+      return cargarDocsAppDb();
+    })
+    .catch(function (err) {
+      delete savingMap[doc.id];
+      showStatus('No se pudo guardar la fecha: ' + describeError(err));
+      renderTable();
+    });
 }
 
 // El select de Issue guarda solo al cambiar (es una elección de catálogo
@@ -600,27 +693,6 @@ function guardarIssue(doc, nuevoValor) {
     .catch(function (err) {
       delete savingIssue[doc.id];
       showStatus('No se pudo guardar el issue: ' + describeError(err));
-      renderTable();
-    });
-}
-
-function guardarComentario(doc, nuevoValor) {
-  savingComentarios[doc.id] = true;
-  renderTable();
-
-  var content = Object.assign({}, doc.content);
-  content[COMENTARIOS_FIELD] = nuevoValor;
-
-  domo
-    .put(DOCS_URL + '/' + doc.id, { content: content })
-    .then(function () {
-      delete editedComentarios[doc.id];
-      delete savingComentarios[doc.id];
-      return cargarDocsAppDb();
-    })
-    .catch(function (err) {
-      delete savingComentarios[doc.id];
-      showStatus('No se pudo guardar el comentario: ' + describeError(err));
       renderTable();
     });
 }
