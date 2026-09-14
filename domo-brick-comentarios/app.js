@@ -126,16 +126,16 @@ var lastSyncLabel = document.getElementById('lastSyncLabel');
 var statusMsg = document.getElementById('statusMsg');
 var loadingEl = document.getElementById('loading');
 var dataTable = document.getElementById('dataTable');
+var tableWrapper = document.querySelector('.table-wrapper');
 
 // ---------- Estado ----------
 var allDocs = []; // últimos documentos de AppDB tras la sincronización: [{id, content}, ...]
-var editedComentarios = {}; // doc.id -> valor en edición (para no perderlo al re-renderizar)
-var savingComentarios = {}; // doc.id -> true mientras se guarda ese comentario
-var editedMissingComponent = {};
-var savingMissingComponent = {};
-var savingIssue = {}; // doc.id -> true mientras se guarda ese issue
-var savingFabDate = {};
-var savingPlanDate = {};
+
+// Los 5 campos editables (Issue, Estimated Fab Date, Plan date, Missing
+// component, Comentarios) comparten un solo botón "Guardar" por fila, en
+// vez de guardar cada uno por separado: doc.id -> { campo: valor en edición }.
+var pendingEdits = {};
+var savingRows = {}; // doc.id -> true mientras se guarda esa fila
 
 init();
 
@@ -474,225 +474,193 @@ function cargarDocsAppDb() {
 }
 
 // ---------- Tabla ----------
+// Editar un campo (elegir fecha, escribir un comentario, cambiar el issue)
+// solo actualiza pendingEdits y habilita el botón "Guardar" de esa fila —
+// NO reconstruye la tabla. Antes cada campo se guardaba por su cuenta y
+// disparaba renderTable() en cada cambio, lo que además de forzar una
+// llamada a AppDB por campo, tiraba tbody.innerHTML y perdía el scroll de
+// .table-wrapper en cada fecha elegida. Ahora la tabla solo se reconstruye
+// al buscar, sincronizar, o dar clic en "Guardar" — y en esos casos se
+// restaura el scroll manualmente (ver preservarScroll).
 function renderTable() {
-  var thead = dataTable.querySelector('thead');
-  var tbody = dataTable.querySelector('tbody');
-  thead.innerHTML = '';
-  tbody.innerHTML = '';
+  preservarScroll(function () {
+    var thead = dataTable.querySelector('thead');
+    var tbody = dataTable.querySelector('tbody');
+    thead.innerHTML = '';
+    tbody.innerHTML = '';
 
-  var headerRow = document.createElement('tr');
-  DISPLAY_COLUMNS.forEach(function (col) {
-    var th = document.createElement('th');
-    th.textContent = columnLabel(col);
-    headerRow.appendChild(th);
-  });
-  var thObservaciones = document.createElement('th');
-  thObservaciones.textContent = 'Observaciones';
-  headerRow.appendChild(thObservaciones);
-  var thIssue = document.createElement('th');
-  thIssue.textContent = 'Issue';
-  headerRow.appendChild(thIssue);
-  var thFabDate = document.createElement('th');
-  thFabDate.textContent = 'Estimated Fab Date';
-  headerRow.appendChild(thFabDate);
-  var thPlanDate = document.createElement('th');
-  thPlanDate.textContent = 'Plan date';
-  headerRow.appendChild(thPlanDate);
-  var thMissingComponent = document.createElement('th');
-  thMissingComponent.textContent = 'Missing component';
-  headerRow.appendChild(thMissingComponent);
-  var thComentarios = document.createElement('th');
-  thComentarios.textContent = 'Comentarios';
-  headerRow.appendChild(thComentarios);
-  thead.appendChild(headerRow);
-
-  var filtro = buscarInput.value.trim().toLowerCase();
-  var rows = allDocs.filter(function (doc) {
-    if (!filtro) return true;
-    return Object.keys(doc.content)
-      .map(function (k) { return doc.content[k]; })
-      .join(' ')
-      .toLowerCase()
-      .indexOf(filtro) !== -1;
-  });
-
-  // + Observaciones + Issue + Estimated Fab Date + Plan date + Missing component + Comentarios
-  var totalColumnas = DISPLAY_COLUMNS.length + 6;
-
-  if (allDocs.length === 0) {
-    var emptyTr = document.createElement('tr');
-    var emptyTd = document.createElement('td');
-    emptyTd.colSpan = totalColumnas;
-    emptyTd.className = 'empty-cell';
-    emptyTd.textContent = 'Sin datos. Sincroniza o revisa el dataset ETL seleccionado.';
-    emptyTr.appendChild(emptyTd);
-    tbody.appendChild(emptyTr);
-    return;
-  }
-
-  if (rows.length === 0) {
-    var noMatchTr = document.createElement('tr');
-    var noMatchTd = document.createElement('td');
-    noMatchTd.colSpan = totalColumnas;
-    noMatchTd.className = 'empty-cell';
-    noMatchTd.textContent = 'Sin resultados para el filtro actual.';
-    noMatchTr.appendChild(noMatchTd);
-    tbody.appendChild(noMatchTr);
-    return;
-  }
-
-  rows.forEach(function (doc) {
-    var tr = document.createElement('tr');
+    var headerRow = document.createElement('tr');
     DISPLAY_COLUMNS.forEach(function (col) {
-      tr.appendChild(cell(doc.content[col]));
+      var th = document.createElement('th');
+      th.textContent = columnLabel(col);
+      headerRow.appendChild(th);
     });
-    tr.appendChild(cell(doc.content[OBSERVACIONES_FIELD]));
-    tr.appendChild(buildIssueCell(doc));
-    tr.appendChild(buildDateCell(doc, FAB_DATE_FIELD, savingFabDate));
-    tr.appendChild(buildDateCell(doc, PLAN_DATE_FIELD, savingPlanDate));
-    tr.appendChild(buildTextFieldCell(doc, MISSING_COMPONENT_FIELD, editedMissingComponent, savingMissingComponent, 'Sin componente faltante'));
-    tr.appendChild(buildTextFieldCell(doc, COMENTARIOS_FIELD, editedComentarios, savingComentarios, 'Sin comentarios'));
-    tbody.appendChild(tr);
-  });
-}
-
-// Celda de texto libre genérica (Comentarios, Missing component): requiere
-// dar clic en "Guardar" (a diferencia del select de Issue o las fechas, que
-// guardan solo al cambiar), para no mandar una llamada por cada tecla.
-function buildTextFieldCell(doc, field, editedMap, savingMap, placeholder) {
-  var td = document.createElement('td');
-  var wrapper = document.createElement('div');
-  wrapper.className = 'inline-action';
-
-  var valorGuardado = doc.content[field] || '';
-  var valorActual = editedMap[doc.id] !== undefined ? editedMap[doc.id] : valorGuardado;
-
-  var input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = placeholder;
-  input.value = valorActual;
-  input.addEventListener('input', function () {
-    editedMap[doc.id] = input.value;
-    btnGuardar.disabled = input.value === valorGuardado;
-  });
-
-  var btnGuardar = document.createElement('button');
-  btnGuardar.className = 'small';
-  btnGuardar.textContent = savingMap[doc.id] ? 'Guardando...' : 'Guardar';
-  btnGuardar.disabled = !!savingMap[doc.id] || valorActual === valorGuardado;
-  btnGuardar.addEventListener('click', function () {
-    guardarCampoTexto(doc, field, input.value, editedMap, savingMap);
-  });
-
-  wrapper.appendChild(input);
-  wrapper.appendChild(btnGuardar);
-  td.appendChild(wrapper);
-  return td;
-}
-
-function guardarCampoTexto(doc, field, nuevoValor, editedMap, savingMap) {
-  savingMap[doc.id] = true;
-  renderTable();
-
-  var content = Object.assign({}, doc.content);
-  content[field] = nuevoValor;
-
-  domo
-    .put(DOCS_URL + '/' + doc.id, { content: content })
-    .then(function () {
-      delete editedMap[doc.id];
-      delete savingMap[doc.id];
-      return cargarDocsAppDb();
-    })
-    .catch(function (err) {
-      delete savingMap[doc.id];
-      showStatus('No se pudo guardar: ' + describeError(err));
-      renderTable();
+    ['Observaciones', 'Issue', 'Estimated Fab Date', 'Plan date', 'Missing component', 'Comentarios', 'Acciones'].forEach(function (texto) {
+      var th = document.createElement('th');
+      th.textContent = texto;
+      headerRow.appendChild(th);
     });
-}
+    thead.appendChild(headerRow);
 
-// Fechas (Estimated Fab Date, Plan date): igual que el select de Issue,
-// guardan solo al cambiar, sin botón "Guardar" aparte.
-function buildDateCell(doc, field, savingMap) {
-  var td = document.createElement('td');
-
-  var input = document.createElement('input');
-  input.type = 'date';
-  input.disabled = !!savingMap[doc.id];
-  input.value = doc.content[field] || '';
-  input.addEventListener('change', function () {
-    guardarCampoFecha(doc, field, input.value, savingMap);
-  });
-
-  td.appendChild(input);
-  return td;
-}
-
-function guardarCampoFecha(doc, field, nuevoValor, savingMap) {
-  savingMap[doc.id] = true;
-  renderTable();
-
-  var content = Object.assign({}, doc.content);
-  content[field] = nuevoValor;
-
-  domo
-    .put(DOCS_URL + '/' + doc.id, { content: content })
-    .then(function () {
-      delete savingMap[doc.id];
-      return cargarDocsAppDb();
-    })
-    .catch(function (err) {
-      delete savingMap[doc.id];
-      showStatus('No se pudo guardar la fecha: ' + describeError(err));
-      renderTable();
+    var filtro = buscarInput.value.trim().toLowerCase();
+    var rows = allDocs.filter(function (doc) {
+      if (!filtro) return true;
+      return Object.keys(doc.content)
+        .map(function (k) { return doc.content[k]; })
+        .join(' ')
+        .toLowerCase()
+        .indexOf(filtro) !== -1;
     });
+
+    // + Observaciones + Issue + Estimated Fab Date + Plan date + Missing component + Comentarios + Acciones
+    var totalColumnas = DISPLAY_COLUMNS.length + 7;
+
+    if (allDocs.length === 0) {
+      tbody.appendChild(mensajeVacio(totalColumnas, 'Sin datos. Sincroniza o revisa el dataset ETL seleccionado.'));
+      return;
+    }
+
+    if (rows.length === 0) {
+      tbody.appendChild(mensajeVacio(totalColumnas, 'Sin resultados para el filtro actual.'));
+      return;
+    }
+
+    rows.forEach(function (doc) {
+      tbody.appendChild(buildRow(doc));
+    });
+  });
 }
 
-// El select de Issue guarda solo al cambiar (es una elección de catálogo
-// cerrado, no texto libre): no necesita un botón "Guardar" aparte.
-function buildIssueCell(doc) {
+function mensajeVacio(colSpan, texto) {
+  var tr = document.createElement('tr');
   var td = document.createElement('td');
+  td.colSpan = colSpan;
+  td.className = 'empty-cell';
+  td.textContent = texto;
+  tr.appendChild(td);
+  return tr;
+}
 
+// Mantiene la posición de scroll de .table-wrapper mientras "accion"
+// reconstruye el contenido de la tabla (tbody.innerHTML = '' + repoblar).
+function preservarScroll(accion) {
+  var scrollTop = tableWrapper ? tableWrapper.scrollTop : 0;
+  accion();
+  if (tableWrapper) tableWrapper.scrollTop = scrollTop;
+}
+
+// Arma una fila completa: las columnas del ETL (solo lectura) + los 5
+// campos editables + un único botón "Guardar" al final que manda todos los
+// cambios pendientes de esa fila en una sola llamada a AppDB.
+function buildRow(doc) {
+  var tr = document.createElement('tr');
+
+  DISPLAY_COLUMNS.forEach(function (col) {
+    tr.appendChild(cell(doc.content[col]));
+  });
+  tr.appendChild(cell(doc.content[OBSERVACIONES_FIELD]));
+
+  var cambios = pendingEdits[doc.id] || {};
+  var btnGuardar; // creado más abajo; los campos lo referencian por closure
+
+  function valorActual(field) {
+    return cambios[field] !== undefined ? cambios[field] : (doc.content[field] || '');
+  }
+
+  function marcarCambio(field, value) {
+    if (!pendingEdits[doc.id]) pendingEdits[doc.id] = {};
+    pendingEdits[doc.id][field] = value;
+    cambios = pendingEdits[doc.id];
+    actualizarBotonGuardar();
+  }
+
+  function actualizarBotonGuardar() {
+    var hayCambios = Object.keys(cambios).some(function (f) {
+      return cambios[f] !== (doc.content[f] || '');
+    });
+    btnGuardar.disabled = !hayCambios || !!savingRows[doc.id];
+  }
+
+  // Issue: select de catálogo cerrado.
+  var tdIssue = document.createElement('td');
   var select = document.createElement('select');
-  select.disabled = !!savingIssue[doc.id];
-
+  select.disabled = !!savingRows[doc.id];
   var optionVacia = document.createElement('option');
   optionVacia.value = '';
   optionVacia.textContent = 'Sin issue';
   select.appendChild(optionVacia);
-
   ISSUE_OPTIONS.forEach(function (opcion) {
     var option = document.createElement('option');
     option.value = opcion;
     option.textContent = opcion;
     select.appendChild(option);
   });
+  select.value = valorActual(ISSUE_FIELD);
+  select.addEventListener('change', function () { marcarCambio(ISSUE_FIELD, select.value); });
+  tdIssue.appendChild(select);
+  tr.appendChild(tdIssue);
 
-  select.value = doc.content[ISSUE_FIELD] || '';
-  select.addEventListener('change', function () {
-    guardarIssue(doc, select.value);
+  // Estimated Fab Date / Plan date.
+  [FAB_DATE_FIELD, PLAN_DATE_FIELD].forEach(function (field) {
+    var td = document.createElement('td');
+    var input = document.createElement('input');
+    input.type = 'date';
+    input.disabled = !!savingRows[doc.id];
+    input.value = valorActual(field);
+    input.addEventListener('change', function () { marcarCambio(field, input.value); });
+    td.appendChild(input);
+    tr.appendChild(td);
   });
 
-  td.appendChild(select);
-  return td;
+  // Missing component / Comentarios: texto libre.
+  [
+    { field: MISSING_COMPONENT_FIELD, placeholder: 'Sin componente faltante' },
+    { field: COMENTARIOS_FIELD, placeholder: 'Sin comentarios' }
+  ].forEach(function (cfg) {
+    var td = document.createElement('td');
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = cfg.placeholder;
+    input.disabled = !!savingRows[doc.id];
+    input.value = valorActual(cfg.field);
+    input.addEventListener('input', function () { marcarCambio(cfg.field, input.value); });
+    td.appendChild(input);
+    tr.appendChild(td);
+  });
+
+  // Acciones: un solo botón que guarda los 5 campos editables de la fila.
+  var tdAcciones = document.createElement('td');
+  btnGuardar = document.createElement('button');
+  btnGuardar.className = 'small';
+  btnGuardar.textContent = savingRows[doc.id] ? 'Guardando...' : 'Guardar';
+  btnGuardar.addEventListener('click', function () { guardarFila(doc); });
+  tdAcciones.appendChild(btnGuardar);
+  tr.appendChild(tdAcciones);
+
+  actualizarBotonGuardar();
+
+  return tr;
 }
 
-function guardarIssue(doc, nuevoValor) {
-  savingIssue[doc.id] = true;
+function guardarFila(doc) {
+  var cambios = pendingEdits[doc.id];
+  if (!cambios) return;
+
+  savingRows[doc.id] = true;
   renderTable();
 
-  var content = Object.assign({}, doc.content);
-  content[ISSUE_FIELD] = nuevoValor;
+  var content = Object.assign({}, doc.content, cambios);
 
   domo
     .put(DOCS_URL + '/' + doc.id, { content: content })
     .then(function () {
-      delete savingIssue[doc.id];
+      delete pendingEdits[doc.id];
+      delete savingRows[doc.id];
       return cargarDocsAppDb();
     })
     .catch(function (err) {
-      delete savingIssue[doc.id];
-      showStatus('No se pudo guardar el issue: ' + describeError(err));
+      delete savingRows[doc.id];
+      showStatus('No se pudo guardar: ' + describeError(err));
       renderTable();
     });
 }
