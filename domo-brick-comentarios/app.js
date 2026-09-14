@@ -549,9 +549,24 @@ function preservarScroll(accion) {
   if (tableWrapper) tableWrapper.scrollTop = scrollTop;
 }
 
-// Arma una fila completa: las columnas del ETL (solo lectura) + los 5
-// campos editables + un único botón "Guardar" al final que manda todos los
-// cambios pendientes de esa fila en una sola llamada a AppDB.
+// Descriptor de los 5 campos editables: cómo se ve en modo lectura y qué
+// tipo de control usa en modo edición. Un solo lugar para agregar/quitar un
+// campo editable en vez de tocar dos ramas de buildRow por separado.
+var CAMPOS_EDITABLES = [
+  { field: ISSUE_FIELD, type: 'select', options: ISSUE_OPTIONS, vacio: 'Sin issue' },
+  { field: FAB_DATE_FIELD, type: 'date', vacio: 'Sin fecha' },
+  { field: PLAN_DATE_FIELD, type: 'date', vacio: 'Sin fecha' },
+  { field: MISSING_COMPONENT_FIELD, type: 'text', vacio: 'Sin componente faltante' },
+  { field: COMENTARIOS_FIELD, type: 'text', vacio: 'Sin comentarios' }
+];
+
+// Filas en modo edición (doc.id -> true). Fuera de este modo los 5 campos
+// se muestran de solo lectura y la única acción es "Editar".
+var editingRows = {};
+
+// Arma una fila completa: las columnas del ETL (siempre solo lectura) + los
+// 5 campos editables (texto plano, o sus controles si la fila está en modo
+// edición) + Acciones (Editar, o Guardar/Cancelar mientras se edita).
 function buildRow(doc) {
   var tr = document.createElement('tr');
 
@@ -559,6 +574,25 @@ function buildRow(doc) {
     tr.appendChild(cell(doc.content[col]));
   });
   tr.appendChild(cell(doc.content[OBSERVACIONES_FIELD]));
+
+  var editando = !!editingRows[doc.id];
+
+  if (!editando) {
+    CAMPOS_EDITABLES.forEach(function (cfg) {
+      tr.appendChild(cell(doc.content[cfg.field] || cfg.vacio));
+    });
+    var tdEditar = document.createElement('td');
+    var btnEditar = document.createElement('button');
+    btnEditar.className = 'small';
+    btnEditar.textContent = 'Editar';
+    btnEditar.addEventListener('click', function () {
+      editingRows[doc.id] = true;
+      renderTable();
+    });
+    tdEditar.appendChild(btnEditar);
+    tr.appendChild(tdEditar);
+    return tr;
+  }
 
   var cambios = pendingEdits[doc.id] || {};
   var btnGuardar; // creado más abajo; los campos lo referencian por closure
@@ -581,60 +615,60 @@ function buildRow(doc) {
     btnGuardar.disabled = !hayCambios || !!savingRows[doc.id];
   }
 
-  // Issue: select de catálogo cerrado.
-  var tdIssue = document.createElement('td');
-  var select = document.createElement('select');
-  select.disabled = !!savingRows[doc.id];
-  var optionVacia = document.createElement('option');
-  optionVacia.value = '';
-  optionVacia.textContent = 'Sin issue';
-  select.appendChild(optionVacia);
-  ISSUE_OPTIONS.forEach(function (opcion) {
-    var option = document.createElement('option');
-    option.value = opcion;
-    option.textContent = opcion;
-    select.appendChild(option);
-  });
-  select.value = valorActual(ISSUE_FIELD);
-  select.addEventListener('change', function () { marcarCambio(ISSUE_FIELD, select.value); });
-  tdIssue.appendChild(select);
-  tr.appendChild(tdIssue);
-
-  // Estimated Fab Date / Plan date.
-  [FAB_DATE_FIELD, PLAN_DATE_FIELD].forEach(function (field) {
+  CAMPOS_EDITABLES.forEach(function (cfg) {
     var td = document.createElement('td');
-    var input = document.createElement('input');
-    input.type = 'date';
+    var input;
+
+    if (cfg.type === 'select') {
+      input = document.createElement('select');
+      var optionVacia = document.createElement('option');
+      optionVacia.value = '';
+      optionVacia.textContent = cfg.vacio;
+      input.appendChild(optionVacia);
+      cfg.options.forEach(function (opcion) {
+        var option = document.createElement('option');
+        option.value = opcion;
+        option.textContent = opcion;
+        input.appendChild(option);
+      });
+      input.value = valorActual(cfg.field);
+      input.addEventListener('change', function () { marcarCambio(cfg.field, input.value); });
+    } else {
+      input = document.createElement('input');
+      input.type = cfg.type === 'date' ? 'date' : 'text';
+      if (cfg.type === 'text') input.placeholder = cfg.vacio;
+      input.value = valorActual(cfg.field);
+      input.addEventListener(cfg.type === 'date' ? 'change' : 'input', function () {
+        marcarCambio(cfg.field, input.value);
+      });
+    }
+
     input.disabled = !!savingRows[doc.id];
-    input.value = valorActual(field);
-    input.addEventListener('change', function () { marcarCambio(field, input.value); });
     td.appendChild(input);
     tr.appendChild(td);
   });
 
-  // Missing component / Comentarios: texto libre.
-  [
-    { field: MISSING_COMPONENT_FIELD, placeholder: 'Sin componente faltante' },
-    { field: COMENTARIOS_FIELD, placeholder: 'Sin comentarios' }
-  ].forEach(function (cfg) {
-    var td = document.createElement('td');
-    var input = document.createElement('input');
-    input.type = 'text';
-    input.placeholder = cfg.placeholder;
-    input.disabled = !!savingRows[doc.id];
-    input.value = valorActual(cfg.field);
-    input.addEventListener('input', function () { marcarCambio(cfg.field, input.value); });
-    td.appendChild(input);
-    tr.appendChild(td);
-  });
-
-  // Acciones: un solo botón que guarda los 5 campos editables de la fila.
+  // Acciones: Guardar (manda los cambios pendientes de la fila en una sola
+  // llamada a AppDB) + Cancelar (descarta los cambios y sale del modo edición).
   var tdAcciones = document.createElement('td');
+
   btnGuardar = document.createElement('button');
   btnGuardar.className = 'small';
   btnGuardar.textContent = savingRows[doc.id] ? 'Guardando...' : 'Guardar';
   btnGuardar.addEventListener('click', function () { guardarFila(doc); });
   tdAcciones.appendChild(btnGuardar);
+
+  var btnCancelar = document.createElement('button');
+  btnCancelar.className = 'secondary small';
+  btnCancelar.textContent = 'Cancelar';
+  btnCancelar.disabled = !!savingRows[doc.id];
+  btnCancelar.addEventListener('click', function () {
+    delete pendingEdits[doc.id];
+    delete editingRows[doc.id];
+    renderTable();
+  });
+  tdAcciones.appendChild(btnCancelar);
+
   tr.appendChild(tdAcciones);
 
   actualizarBotonGuardar();
@@ -656,6 +690,7 @@ function guardarFila(doc) {
     .then(function () {
       delete pendingEdits[doc.id];
       delete savingRows[doc.id];
+      delete editingRows[doc.id];
       return cargarDocsAppDb();
     })
     .catch(function (err) {
