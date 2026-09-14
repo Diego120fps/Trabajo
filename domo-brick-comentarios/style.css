@@ -181,6 +181,11 @@ td.empty-cell {
   white-space: normal;
 }
 
+td.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
 .inline-action {
   display: flex;
   align-items: center;

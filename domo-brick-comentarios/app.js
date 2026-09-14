@@ -23,9 +23,49 @@ var COMENTARIOS_FIELD = 'comentarios';
 var ISSUE_FIELD = 'issue';
 var ISSUE_OPTIONS = ['Designed Changed', 'Shortage', 'In Development'];
 
+// "Observaciones" también es una columna que NO viene tal cual del ETL,
+// pero a diferencia de Comentarios/Issue no la captura una persona: se
+// recalcula en cada sincronización a partir de los campos del ETL (ver
+// calcularObservaciones más abajo), así que siempre refleja los valores
+// más recientes del dataset.
+var OBSERVACIONES_FIELD = 'observaciones';
+
 // Campos editables a mano que NUNCA vienen del ETL: se excluyen de las
-// columnas dinámicas y de la comparación de cambios del merge.
+// columnas dinámicas y de la comparación de cambios del merge, y se
+// conservan tal cual entre sincronizaciones.
 var EDITABLE_FIELDS = [COMENTARIOS_FIELD, ISSUE_FIELD];
+
+// Todos los campos que no vienen directamente del ETL (editables +
+// calculados): se excluyen de la comparación "¿cambió esta fila?" del merge,
+// porque compararlos contra el dataset crudo no tendría sentido.
+var NON_ETL_FIELDS = EDITABLE_FIELDS.concat([OBSERVACIONES_FIELD]);
+
+// Columnas del ETL a mostrar, en este orden exacto (tal como vienen en el
+// dataset). Si el ETL agrega/quita columnas que no sea esta lista, se
+// siguen guardando en AppDB (el merge copia todos los campos del ETL) pero
+// no se muestran en la tabla; ajusta este arreglo si cambia lo que quieres
+// ver.
+var DISPLAY_COLUMNS = [
+  'sku',
+  'CustomerFinal',
+  'CategoriaFinal',
+  'Motors',
+  'ITEM_DESC',
+  'SUM(TotalBackOrder)',
+  'SUM(TotalCurrentMonth)',
+  'SUM(Total30Days)',
+  'SUM(PastDue)',
+  'max(QtyDallas)',
+  'max(QtyonHandJDE)',
+  'max(QtyInTransit)',
+  'max(QtyWO)',
+  'max(QtyWON)',
+  'sum(CostopenOrder)',
+  'sum(CostPastdue)',
+  'sum(CostPastDueDallas)',
+  'sum(CostPastDueInTransit)',
+  'sum(CostPastDueGDL)'
+];
 
 // Paginación al leer el dataset ETL (Data API) y AppDB.
 var ETL_PAGE_SIZE = 5000;
@@ -90,7 +130,8 @@ function ensureCollection() {
         columns: [
           { name: FIELD_KEY, type: 'STRING' },
           { name: COMENTARIOS_FIELD, type: 'STRING' },
-          { name: ISSUE_FIELD, type: 'STRING' }
+          { name: ISSUE_FIELD, type: 'STRING' },
+          { name: OBSERVACIONES_FIELD, type: 'STRING' }
         ]
       }
     })
@@ -235,6 +276,7 @@ function aplicarMerge(etlRows, appDocs) {
     var content = Object.assign({}, etlRow);
     content[COMENTARIOS_FIELD] = '';
     content[ISSUE_FIELD] = '';
+    content[OBSERVACIONES_FIELD] = calcularObservaciones(etlRow);
     return domo.post(DOCS_URL, { content: content });
   })
     .then(function () {
@@ -242,6 +284,7 @@ function aplicarMerge(etlRows, appDocs) {
         var content = Object.assign({}, item.etlRow);
         content[COMENTARIOS_FIELD] = item.doc.content[COMENTARIOS_FIELD] || '';
         content[ISSUE_FIELD] = item.doc.content[ISSUE_FIELD] || '';
+        content[OBSERVACIONES_FIELD] = calcularObservaciones(item.etlRow);
         return domo.put(DOCS_URL + '/' + item.doc.id, { content: content });
       });
     })
@@ -253,14 +296,76 @@ function aplicarMerge(etlRows, appDocs) {
 }
 
 // Compara todos los campos del ETL (menos la llave, que ya coincidió, y
-// obviamente menos los campos editables a mano, que no vienen del ETL)
+// menos los campos que no vienen del ETL: editables a mano + calculados)
 // contra lo guardado.
 function etlRowChanged(etlRow, content) {
   var a = JSON.stringify(sortedEntries(etlRow));
-  var contentSinEditables = Object.assign({}, content);
-  EDITABLE_FIELDS.forEach(function (f) { delete contentSinEditables[f]; });
-  var b = JSON.stringify(sortedEntries(contentSinEditables));
+  var contentSinExtras = Object.assign({}, content);
+  NON_ETL_FIELDS.forEach(function (f) { delete contentSinExtras[f]; });
+  var b = JSON.stringify(sortedEntries(contentSinExtras));
   return a !== b;
+}
+
+// ---------- Observaciones (calculada, no editable a mano) ----------
+// Traduce a JS la lógica de negocio que antes era una fórmula tipo SQL
+// (CASE WHEN). Mapeo de los alias cortos de esa fórmula a las columnas
+// reales del ETL:
+//   PastDue          -> SUM(PastDue)
+//   CostPastDueGDL   -> sum(CostPastDueGDL)
+//   QtyDallas        -> max(QtyDallas)
+//   QtyWO            -> max(QtyWO)
+//   QtyWON           -> max(QtyWON)
+// ITEM_STOCKING_TYPE, Vendor, EsObsoleto y QtyInTransit2 vienen en cada
+// fila del dataset aunque no se muestren como columna en la tabla.
+function calcularObservaciones(etlRow) {
+  var pastDue = numField(etlRow, 'SUM(PastDue)');
+
+  if (pastDue <= 0) return 'NoPastDue';
+
+  var costPastDueGDL = roundTo(numField(etlRow, 'sum(CostPastDueGDL)'), 3);
+
+  if (costPastDueGDL > 0) {
+    var itemStockingType = etlRow['ITEM_STOCKING_TYPE'];
+    var esObsoleto = numField(etlRow, 'EsObsoleto');
+    var qtyWO = numField(etlRow, 'max(QtyWO)');
+    var qtyWON = numField(etlRow, 'max(QtyWON)');
+    var sku = etlRow['sku'];
+
+    if (itemStockingType === 'A') return 'Design Issue';
+    if (!vendorEsCero(etlRow['Vendor'])) return 'Pending Supplier';
+    if (sku === 'AMP-75137-01A' || sku === 'AMP-76137-01A') return 'New Motor';
+    if (qtyWO > 0) return 'On a production Plan';
+    if (qtyWON > 0) return 'On Planning';
+    if (itemStockingType === 'O' || esObsoleto > 0) return 'Obsolete';
+    return 'Pending to WO';
+  }
+
+  var qtyDallas = numField(etlRow, 'max(QtyDallas)');
+  var qtyInTransit2 = numField(etlRow, 'QtyInTransit2');
+
+  if (pastDue <= qtyDallas) return 'FulfilledDallas';
+  if (pastDue <= qtyInTransit2) return 'InTransit';
+  if (pastDue <= qtyInTransit2 + qtyDallas) return 'Dallas-Transit';
+  return ''; // el CASE original no tiene ELSE en esta rama: sin match, queda vacío
+}
+
+// `Vendor <> 0` de la fórmula original: vacío/nulo/0 cuenta como "sin
+// vendedor"; cualquier otro valor (numérico distinto de 0, o un código no
+// numérico) cuenta como "con vendedor".
+function vendorEsCero(vendor) {
+  if (vendor === null || vendor === undefined || vendor === '') return true;
+  var n = Number(vendor);
+  return !isNaN(n) && n === 0;
+}
+
+function numField(row, key) {
+  var n = Number(row[key]);
+  return isNaN(n) ? 0 : n;
+}
+
+function roundTo(value, decimals) {
+  var factor = Math.pow(10, decimals);
+  return Math.round(value * factor) / factor;
 }
 
 function sortedEntries(obj) {
@@ -324,34 +429,21 @@ function cargarDocsAppDb() {
 }
 
 // ---------- Tabla ----------
-function computeColumns(docs) {
-  var cols = [];
-  var seen = {};
-  docs.forEach(function (doc) {
-    Object.keys(doc.content).forEach(function (k) {
-      if (EDITABLE_FIELDS.indexOf(k) !== -1) return;
-      if (!seen[k]) {
-        seen[k] = true;
-        cols.push(k);
-      }
-    });
-  });
-  return cols;
-}
-
 function renderTable() {
   var thead = dataTable.querySelector('thead');
   var tbody = dataTable.querySelector('tbody');
   thead.innerHTML = '';
   tbody.innerHTML = '';
 
-  var columns = computeColumns(allDocs);
   var headerRow = document.createElement('tr');
-  columns.forEach(function (col) {
+  DISPLAY_COLUMNS.forEach(function (col) {
     var th = document.createElement('th');
     th.textContent = col;
     headerRow.appendChild(th);
   });
+  var thObservaciones = document.createElement('th');
+  thObservaciones.textContent = 'Observaciones';
+  headerRow.appendChild(thObservaciones);
   var thIssue = document.createElement('th');
   thIssue.textContent = 'Issue';
   headerRow.appendChild(thIssue);
@@ -370,10 +462,12 @@ function renderTable() {
       .indexOf(filtro) !== -1;
   });
 
-  if (columns.length === 0 && rows.length === 0) {
+  var totalColumnas = DISPLAY_COLUMNS.length + 3; // + Observaciones + Issue + Comentarios
+
+  if (allDocs.length === 0) {
     var emptyTr = document.createElement('tr');
     var emptyTd = document.createElement('td');
-    emptyTd.colSpan = 1;
+    emptyTd.colSpan = totalColumnas;
     emptyTd.className = 'empty-cell';
     emptyTd.textContent = 'Sin datos. Sincroniza o revisa el dataset ETL seleccionado.';
     emptyTr.appendChild(emptyTd);
@@ -384,7 +478,7 @@ function renderTable() {
   if (rows.length === 0) {
     var noMatchTr = document.createElement('tr');
     var noMatchTd = document.createElement('td');
-    noMatchTd.colSpan = columns.length + 2;
+    noMatchTd.colSpan = totalColumnas;
     noMatchTd.className = 'empty-cell';
     noMatchTd.textContent = 'Sin resultados para el filtro actual.';
     noMatchTr.appendChild(noMatchTd);
@@ -394,9 +488,10 @@ function renderTable() {
 
   rows.forEach(function (doc) {
     var tr = document.createElement('tr');
-    columns.forEach(function (col) {
+    DISPLAY_COLUMNS.forEach(function (col) {
       tr.appendChild(cell(doc.content[col]));
     });
+    tr.appendChild(cell(doc.content[OBSERVACIONES_FIELD]));
     tr.appendChild(buildIssueCell(doc));
     tr.appendChild(buildComentariosCell(doc));
     tbody.appendChild(tr);
@@ -506,7 +601,12 @@ function guardarComentario(doc, nuevoValor) {
 // ---------- Helpers ----------
 function cell(value) {
   var td = document.createElement('td');
-  td.textContent = value === undefined || value === null ? '' : String(value);
+  if (typeof value === 'number') {
+    td.className = 'numeric';
+    td.textContent = value.toLocaleString('es-MX', { maximumFractionDigits: 2 });
+  } else {
+    td.textContent = value === undefined || value === null ? '' : String(value);
+  }
   return td;
 }
 
