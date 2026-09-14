@@ -69,6 +69,36 @@ var DISPLAY_COLUMNS = [
   'CostPastDueGDL'
 ];
 
+// Etiqueta que se muestra en el encabezado de cada columna (lo visual). La
+// llave es el nombre real del campo en el dataset/AppDB (no cambia); si un
+// campo no aparece aquí, se usa su nombre tal cual como encabezado. Edita
+// solo los valores para renombrar columnas sin afectar el merge.
+var COLUMN_LABELS = {
+  sku: 'SKU',
+  CustomerFinal: 'Cliente',
+  CategoriaFinal: 'Categoría',
+  Motors: 'Motor',
+  ITEM_DESC: 'Descripción',
+  TotalBackOrder: 'Back Order',
+  TotalCurrentMonth: 'Mes Actual',
+  Total30Days: '30 Días',
+  PastDue: 'Vencido',
+  QtyDallas: 'Cant. Dallas',
+  QtyonHandJDE: 'Cant. en JDE',
+  QtyInTransit: 'Cant. en Tránsito',
+  QtyWO: 'Cant. en WO',
+  QtyWON: 'Cant. en WON',
+  CostopenOrder: 'Costo Orden Abierta',
+  CostPastdue: 'Costo Vencido',
+  CostPastDueDallas: 'Costo Vencido Dallas',
+  CostPastDueInTransit: 'Costo Vencido Tránsito',
+  CostPastDueGDL: 'Costo Vencido GDL'
+};
+
+function columnLabel(field) {
+  return COLUMN_LABELS[field] || field;
+}
+
 // Paginación al leer el dataset ETL (Data API) y AppDB.
 var ETL_PAGE_SIZE = 5000;
 var ETL_MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas
@@ -435,7 +465,7 @@ function renderTable() {
   var headerRow = document.createElement('tr');
   DISPLAY_COLUMNS.forEach(function (col) {
     var th = document.createElement('th');
-    th.textContent = col;
+    th.textContent = columnLabel(col);
     headerRow.appendChild(th);
   });
   var thObservaciones = document.createElement('th');
