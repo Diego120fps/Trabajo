@@ -8,11 +8,12 @@ var datasetId = datasets[0];
 var FIELD_CATEGORY_PARENT = 'CategoryParent';
 var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';
 var FIELD_RACK = 'Rack';
-var FIELD_PERCENT = '%'; // Verifica el nombre real de la columna de porcentaje en tu dataset
+var FIELD_ON_HAND = 'ON_HAND';
+var FIELD_MINIMO = 'Minimo';
 
 // Columnas que se traen del dataset. Agrega aquí más si las quieres ver
 // en la tabla de detalle (ej. Item, Descripción, etc.).
-var FIELDS = [FIELD_CATEGORY_PARENT, FIELD_BRANCH_PLANT, FIELD_RACK, FIELD_PERCENT];
+var FIELDS = [FIELD_CATEGORY_PARENT, FIELD_BRANCH_PLANT, FIELD_RACK, FIELD_ON_HAND, FIELD_MINIMO];
 
 // ---------- Filtros fijos ----------
 var FILTER_CATEGORY_PARENT = 'Powerstep';
@@ -24,7 +25,7 @@ var FILTER_BRANCH_PLANT = '200';
 // así que este filtro se aplica en el navegador después de traer las filas.
 var RACK_PREFIXES = ['M-', 'N-', 'O-', 'P-', 'Q-', 'R-'];
 
-// ---------- Umbrales del semáforo (columna "%") ----------
+// ---------- Umbrales del semáforo (sobre "%" calculado, ver calcPercent) ----------
 var UMBRAL_ROJO = 0.2;     // % <= 0.2       -> Rojo
 var UMBRAL_AMARILLO = 0.3; // % <= 0.3       -> Amarillo
 var UMBRAL_MORADO = 0.7;   // % <= 0.7       -> Morado
@@ -97,6 +98,19 @@ function matchesRackPrefix(rackValue) {
   });
 }
 
+// Calcula "%" según el CASE:
+//   WHEN Minimo = 0 THEN 1
+//   ELSE ON_HAND / Minimo
+// Filas sin ON_HAND/Minimo numéricos regresan null (quedan fuera del conteo).
+function calcPercent(row) {
+  var minimo = Number(row[FIELD_MINIMO]);
+  var onHand = Number(row[FIELD_ON_HAND]);
+
+  if (isNaN(minimo) || isNaN(onHand)) return null;
+  if (minimo === 0) return 1;
+  return onHand / minimo;
+}
+
 // Calcula el Semáforo de una fila según el CASE:
 //   %  <= 0.2 -> Rojo
 //   %  <= 0.3 -> Amarillo
@@ -104,11 +118,8 @@ function matchesRackPrefix(rackValue) {
 //   %  > 0.7  -> Verde
 // Filas sin un "%" numérico no entran a ningún color (quedan fuera del conteo).
 function calcSemaforo(row) {
-  var raw = row[FIELD_PERCENT];
-  if (raw === null || raw === undefined || raw === '') return null;
-
-  var pct = Number(raw);
-  if (isNaN(pct)) return null;
+  var pct = calcPercent(row);
+  if (pct === null) return null;
 
   if (pct <= UMBRAL_ROJO) return 'Rojo';
   if (pct <= UMBRAL_AMARILLO) return 'Amarillo';
@@ -180,7 +191,7 @@ function renderDetail(rows, colorKey) {
   thead.innerHTML = '';
   tbody.innerHTML = '';
 
-  var columns = FIELDS.concat(['Semaforo']);
+  var columns = FIELDS.concat(['%', 'Semaforo']);
 
   var headerRow = document.createElement('tr');
   columns.forEach(function (text) {
@@ -208,6 +219,12 @@ function renderDetail(rows, colorKey) {
       tdEl.textContent = row[field];
       tr.appendChild(tdEl);
     });
+    var pct = calcPercent(row);
+    var tdPercent = document.createElement('td');
+    tdPercent.className = 'numeric';
+    tdPercent.textContent = pct === null ? '' : pct.toLocaleString('es-MX', { style: 'percent', minimumFractionDigits: 1 });
+    tr.appendChild(tdPercent);
+
     var tdSemaforo = document.createElement('td');
     tdSemaforo.textContent = calcSemaforo(row);
     tr.appendChild(tdSemaforo);
@@ -223,9 +240,9 @@ function exportDetailToExcel() {
     return;
   }
 
-  var headers = FIELDS.concat(['Semaforo']);
+  var headers = FIELDS.concat(['%', 'Semaforo']);
   var rows = lastDetailRows.map(function (row) {
-    return FIELDS.map(function (field) { return row[field]; }).concat([calcSemaforo(row)]);
+    return FIELDS.map(function (field) { return row[field]; }).concat([calcPercent(row), calcSemaforo(row)]);
   });
 
   downloadCSV('semaforo_' + lastDetailColor + '.csv', toCSV(headers, rows));
