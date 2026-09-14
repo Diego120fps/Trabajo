@@ -105,6 +105,10 @@ function loadAndRender() {
       return calcSemaforo(row) !== null;
     });
 
+    withSemaforo.sort(function (a, b) {
+      return calcPercent(a) - calcPercent(b);
+    });
+
     lastDetailRows = withSemaforo;
     renderCards(groupByColor(withSemaforo));
     renderDetail(withSemaforo);
