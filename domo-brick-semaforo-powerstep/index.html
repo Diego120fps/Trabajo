@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Semáforo Powerstep</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="header-row">
+      <div>
+        <h2>Semáforo Powerstep</h2>
+        <span class="hint">
+          Filtro fijo: CategoryParent = 'Powerstep', ILOC_BRANCH_PLANT = '200',
+          Rack en (M-, N-, O-, P-, Q-, R-)
+        </span>
+      </div>
+      <button id="btnRefrescar" class="secondary small">Refrescar</button>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div id="cards" class="cards-row">
+      <!-- Las tarjetas de Rojo/Amarillo/Morado/Verde se pintan aquí -->
+    </div>
+
+    <div class="section-header">
+      <h3 id="detailTitle">Detalle</h3>
+      <button id="btnExportDetail" class="secondary small">Exportar a Excel</button>
+    </div>
+    <span class="hint">Da clic en una tarjeta para ver aquí las filas de ese color</span>
+    <div class="table-wrapper">
+      <table id="detailTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
