@@ -40,31 +40,33 @@ var EDITABLE_FIELDS = [COMENTARIOS_FIELD, ISSUE_FIELD];
 // porque compararlos contra el dataset crudo no tendría sentido.
 var NON_ETL_FIELDS = EDITABLE_FIELDS.concat([OBSERVACIONES_FIELD]);
 
-// Columnas del ETL a mostrar, en este orden exacto (tal como vienen en el
-// dataset). Si el ETL agrega/quita columnas que no sea esta lista, se
-// siguen guardando en AppDB (el merge copia todos los campos del ETL) pero
-// no se muestran en la tabla; ajusta este arreglo si cambia lo que quieres
-// ver.
+// Columnas del ETL a mostrar, en este orden exacto. El dataset ya viene
+// agrupado por sku (el ETL hace el SUM/max, no este brick): estos son los
+// nombres reales de columna tal como están en el dataset, sin el envoltorio
+// "SUM(...)"/"max(...)" que solo describía cómo se habían calculado. Si el
+// ETL agrega/quita columnas que no estén en esta lista, se siguen guardando
+// en AppDB (el merge copia todos los campos del ETL) pero no se muestran en
+// la tabla; ajusta este arreglo si cambia lo que quieres ver.
 var DISPLAY_COLUMNS = [
   'sku',
   'CustomerFinal',
   'CategoriaFinal',
   'Motors',
   'ITEM_DESC',
-  'SUM(TotalBackOrder)',
-  'SUM(TotalCurrentMonth)',
-  'SUM(Total30Days)',
-  'SUM(PastDue)',
-  'max(QtyDallas)',
-  'max(QtyonHandJDE)',
-  'max(QtyInTransit)',
-  'max(QtyWO)',
-  'max(QtyWON)',
-  'sum(CostopenOrder)',
-  'sum(CostPastdue)',
-  'sum(CostPastDueDallas)',
-  'sum(CostPastDueInTransit)',
-  'sum(CostPastDueGDL)'
+  'TotalBackOrder',
+  'TotalCurrentMonth',
+  'Total30Days',
+  'PastDue',
+  'QtyDallas',
+  'QtyonHandJDE',
+  'QtyInTransit',
+  'QtyWO',
+  'QtyWON',
+  'CostopenOrder',
+  'CostPastdue',
+  'CostPastDueDallas',
+  'CostPastDueInTransit',
+  'CostPastDueGDL'
 ];
 
 // Paginación al leer el dataset ETL (Data API) y AppDB.
@@ -308,27 +310,22 @@ function etlRowChanged(etlRow, content) {
 
 // ---------- Observaciones (calculada, no editable a mano) ----------
 // Traduce a JS la lógica de negocio que antes era una fórmula tipo SQL
-// (CASE WHEN). Mapeo de los alias cortos de esa fórmula a las columnas
-// reales del ETL:
-//   PastDue          -> SUM(PastDue)
-//   CostPastDueGDL   -> sum(CostPastDueGDL)
-//   QtyDallas        -> max(QtyDallas)
-//   QtyWO            -> max(QtyWO)
-//   QtyWON           -> max(QtyWON)
-// ITEM_STOCKING_TYPE, Vendor, EsObsoleto y QtyInTransit2 vienen en cada
-// fila del dataset aunque no se muestren como columna en la tabla.
+// (CASE WHEN), leyendo las columnas del dataset ya agrupado tal cual están
+// (PastDue, CostPastDueGDL, QtyDallas, QtyWO, QtyWON...). ITEM_STOCKING_TYPE,
+// Vendor, EsObsoleto y QtyInTransit2 vienen en cada fila del dataset aunque
+// no se muestren como columna en la tabla.
 function calcularObservaciones(etlRow) {
-  var pastDue = numField(etlRow, 'SUM(PastDue)');
+  var pastDue = numField(etlRow, 'PastDue');
 
   if (pastDue <= 0) return 'NoPastDue';
 
-  var costPastDueGDL = roundTo(numField(etlRow, 'sum(CostPastDueGDL)'), 3);
+  var costPastDueGDL = roundTo(numField(etlRow, 'CostPastDueGDL'), 3);
 
   if (costPastDueGDL > 0) {
     var itemStockingType = etlRow['ITEM_STOCKING_TYPE'];
     var esObsoleto = numField(etlRow, 'EsObsoleto');
-    var qtyWO = numField(etlRow, 'max(QtyWO)');
-    var qtyWON = numField(etlRow, 'max(QtyWON)');
+    var qtyWO = numField(etlRow, 'QtyWO');
+    var qtyWON = numField(etlRow, 'QtyWON');
     var sku = etlRow['sku'];
 
     if (itemStockingType === 'A') return 'Design Issue';
@@ -340,7 +337,7 @@ function calcularObservaciones(etlRow) {
     return 'Pending to WO';
   }
 
-  var qtyDallas = numField(etlRow, 'max(QtyDallas)');
+  var qtyDallas = numField(etlRow, 'QtyDallas');
   var qtyInTransit2 = numField(etlRow, 'QtyInTransit2');
 
   if (pastDue <= qtyDallas) return 'FulfilledDallas';
