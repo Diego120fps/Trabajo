@@ -30,8 +30,8 @@ var QUERY_FIELDS = [
 var DISPLAY_COLUMNS = [
   { field: FIELD_ITEM, label: 'ITEM' },
   { field: FIELD_ON_HAND, label: 'ON_HAND' },
-  { field: FIELD_MINIMO, label: 'MIN' },
-  { field: FIELD_MAXIMO, label: 'MAX' }
+  { field: FIELD_MINIMO, label: 'MIN', numeric: true },
+  { field: FIELD_MAXIMO, label: 'MAX', numeric: true }
 ];
 
 // ---------- Filtros fijos ----------
@@ -229,7 +229,12 @@ function renderDetail(rows) {
 
     DISPLAY_COLUMNS.forEach(function (col) {
       var tdEl = document.createElement('td');
-      tdEl.textContent = row[col.field];
+      if (col.numeric) {
+        tdEl.className = 'numeric';
+        tdEl.textContent = formatRoundedNumber(row[col.field]);
+      } else {
+        tdEl.textContent = row[col.field];
+      }
       tr.appendChild(tdEl);
     });
 
@@ -262,7 +267,9 @@ function exportDetailToExcel() {
 
   var headers = DISPLAY_COLUMNS.map(function (col) { return col.label; }).concat(['%', 'Semaforo']);
   var rows = lastDetailRows.map(function (row) {
-    return DISPLAY_COLUMNS.map(function (col) { return row[col.field]; }).concat([calcPercent(row), calcSemaforo(row)]);
+    return DISPLAY_COLUMNS.map(function (col) {
+      return col.numeric ? formatRoundedNumber(row[col.field]) : row[col.field];
+    }).concat([calcPercent(row), calcSemaforo(row)]);
   });
 
   downloadCSV('semaforo_powerstep.csv', toCSV(headers, rows));
@@ -359,6 +366,13 @@ function fetchAllFilteredRows(filter, onDone, onError) {
 }
 
 // ---------- Utilidades ----------
+
+// Redondea a entero y formatea con "," como separador de miles (ej. 1234.6 -> "1,235").
+function formatRoundedNumber(value) {
+  var num = Number(value);
+  if (isNaN(num)) return '';
+  return Math.round(num).toLocaleString('en-US');
+}
 
 function describeError(err) {
   if (!err) return '';
