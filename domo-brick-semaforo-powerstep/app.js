@@ -45,15 +45,15 @@ var FILTER_BRANCH_PLANT = '200';
 var RACK_PREFIXES = ['M-', 'N-', 'O-', 'P-', 'Q-', 'R-'];
 
 // ---------- Umbrales del semáforo (sobre "%" calculado, ver calcPercent) ----------
-var UMBRAL_ROJO = 0.2;     // % <= 0.2       -> Rojo
-var UMBRAL_AMARILLO = 0.3; // % <= 0.3       -> Amarillo
-var UMBRAL_MORADO = 0.7;   // % <= 0.7       -> Morado
+var UMBRAL_MORADO = 0.2;   // % <= 0.2       -> Morado
+var UMBRAL_ROJO = 0.3;     // % <= 0.3       -> Rojo
+var UMBRAL_AMARILLO = 0.7; // % <= 0.7       -> Amarillo
 // % > 0.7                                    -> Verde
 
 var SEMAFORO_CONFIG = [
+  { key: 'Morado', label: 'Morado', color: '#8e44ad' },
   { key: 'Rojo', label: 'Rojo', color: '#c0392b' },
   { key: 'Amarillo', label: 'Amarillo', color: '#f1c40f' },
-  { key: 'Morado', label: 'Morado', color: '#8e44ad' },
   { key: 'Verde', label: 'Verde', color: '#27ae60' }
 ];
 
@@ -142,18 +142,18 @@ function calcPercent(row) {
 }
 
 // Calcula el Semáforo de una fila según el CASE:
-//   %  <= 0.2 -> Rojo
-//   %  <= 0.3 -> Amarillo
-//   %  <= 0.7 -> Morado
+//   %  <= 0.2 -> Morado
+//   %  <= 0.3 -> Rojo
+//   %  <= 0.7 -> Amarillo
 //   %  > 0.7  -> Verde
 // Filas sin un "%" numérico no entran a ningún color (quedan fuera del conteo).
 function calcSemaforo(row) {
   var pct = calcPercent(row);
   if (pct === null) return null;
 
+  if (pct <= UMBRAL_MORADO) return 'Morado';
   if (pct <= UMBRAL_ROJO) return 'Rojo';
   if (pct <= UMBRAL_AMARILLO) return 'Amarillo';
-  if (pct <= UMBRAL_MORADO) return 'Morado';
   return 'Verde';
 }
 
