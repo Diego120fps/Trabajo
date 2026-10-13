@@ -7,22 +7,22 @@ var datasetId = datasets[0];
 // ---------- Nombres de campo del dataset (ajusta aquí si difieren) ----------
 var FIELD_CATEGORY_PARENT = 'CategoryParent';
 var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';
-var FIELD_RACK = 'Rack';
 var FIELD_ITEM = 'ITEM_NUMBER_SECOND';
 var FIELD_ON_HAND = 'ON_HAND';
 var FIELD_MINIMO = 'Minimo';
 var FIELD_MAXIMO = 'Maximo';
+var FIELD_MAX_DEMANDA_DIA = 'Max_Demanda_Dia';
 
 // Todas las columnas que se piden al dataset: las de filtro más las que se
 // muestran en la tabla.
 var QUERY_FIELDS = [
   FIELD_CATEGORY_PARENT,
   FIELD_BRANCH_PLANT,
-  FIELD_RACK,
   FIELD_ITEM,
   FIELD_ON_HAND,
   FIELD_MINIMO,
-  FIELD_MAXIMO
+  FIELD_MAXIMO,
+  FIELD_MAX_DEMANDA_DIA
 ];
 
 // Columnas de la tabla de detalle (en orden), con el encabezado que se
@@ -38,27 +38,30 @@ var DISPLAY_COLUMNS = [
 var FILTER_CATEGORY_PARENT = 'Powerstep';
 var FILTER_BRANCH_PLANT = '200';
 
-// "Rack in ('M-','N-',...)" se interpreta como: el código de Rack EMPIEZA
-// CON alguno de estos prefijos (ej. 'M-01' pertenece al prefijo 'M-').
-// El operador "in" de la Data API de Domo no soporta booleano por prefijo,
-// así que este filtro se aplica en el navegador después de traer las filas.
-var RACK_PREFIXES = ['M-', 'N-', 'O-', 'P-', 'Q-', 'R-'];
-
 // ---------- Umbrales del semáforo (sobre "%" calculado, ver calcPercent) ----------
 var UMBRAL_MORADO = 0.2;   // % <= 0.2       -> Morado
 var UMBRAL_ROJO = 0.3;     // % <= 0.3       -> Rojo
 var UMBRAL_AMARILLO = 0.7; // % <= 0.7       -> Amarillo
 // % > 0.7                                    -> Verde
 
+// Tarjetas que se pintan, en este orden. "SinDemanda" y "SinInv" son casos
+// especiales que se evalúan antes del % (ver calcSemaforo) y no entran al
+// conteo de Rojo/Amarillo/Morado/Verde.
 var SEMAFORO_CONFIG = [
-  { key: 'Morado', label: 'Morado', color: '#8e44ad' },
-  { key: 'Rojo', label: 'Rojo', color: '#c0392b' },
-  { key: 'Amarillo', label: 'Amarillo', color: '#f1c40f' },
-  { key: 'Verde', label: 'Verde', color: '#27ae60' }
+  { key: 'Verde', label: '> 70%', color: '#27ae60' },
+  { key: 'Amarillo', label: '<= 70%', color: '#f1c40f' },
+  { key: 'Rojo', label: '<= 30%', color: '#c0392b' },
+  { key: 'Morado', label: '<= 20%', color: '#8e44ad' },
+  { key: 'SinDemanda', label: 'Sin Demanda', color: '#2980b9' },
+  { key: 'SinInv', label: 'Sin Inv', color: '#7f8c8d' }
 ];
 
 var SEMAFORO_COLOR_BY_KEY = {};
-SEMAFORO_CONFIG.forEach(function (cfg) { SEMAFORO_COLOR_BY_KEY[cfg.key] = cfg.color; });
+var SEMAFORO_LABEL_BY_KEY = {};
+SEMAFORO_CONFIG.forEach(function (cfg) {
+  SEMAFORO_COLOR_BY_KEY[cfg.key] = cfg.color;
+  SEMAFORO_LABEL_BY_KEY[cfg.key] = cfg.label;
+});
 
 var PAGE_SIZE = 5000;
 var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
@@ -70,8 +73,8 @@ var btnRefrescar = document.getElementById('btnRefrescar');
 var btnExportDetail = document.getElementById('btnExportDetail');
 var detailTable = document.getElementById('detailTable');
 
-// Filas ya filtradas (Powerstep + planta 200 + prefijos de Rack) con
-// Semáforo calculable, listas para pintar tarjetas y la tabla completa.
+// Filas ya filtradas (Powerstep + planta 200) con Semáforo calculable,
+// listas para pintar tarjetas y la tabla completa.
 var lastDetailRows = [];
 
 init();
@@ -95,18 +98,21 @@ function loadAndRender() {
   ]);
 
   fetchAllFilteredRows(filter, function (rows) {
-    var rackFiltered = rows.filter(function (row) {
-      return matchesRackPrefix(row[FIELD_RACK]);
-    });
-
     // Solo entran a tarjetas y tabla las filas con un Semáforo calculable
-    // (ON_HAND y Minimo numéricos).
-    var withSemaforo = rackFiltered.filter(function (row) {
+    // (ON_HAND y Minimo numéricos, o Sin Demanda / Sin Inv).
+    var withSemaforo = rows.filter(function (row) {
       return calcSemaforo(row) !== null;
     });
 
     withSemaforo.sort(function (a, b) {
-      return calcPercent(a) - calcPercent(b);
+      var pctA = calcPercent(a);
+      var pctB = calcPercent(b);
+      // Sin % calculable (Sin Demanda/Sin Inv sin ON_HAND/Minimo numéricos)
+      // se van al final en vez de romper el orden.
+      if (pctA === null && pctB === null) return 0;
+      if (pctA === null) return 1;
+      if (pctB === null) return -1;
+      return pctA - pctB;
     });
 
     lastDetailRows = withSemaforo;
@@ -117,14 +123,6 @@ function loadAndRender() {
     logError('Error cargando el semáforo', err);
     setStatus('No se pudo cargar la información. ' + describeError(err));
     showLoading(false);
-  });
-}
-
-// true si el valor de Rack empieza con alguno de RACK_PREFIXES.
-function matchesRackPrefix(rackValue) {
-  var value = rackValue === null || rackValue === undefined ? '' : String(rackValue);
-  return RACK_PREFIXES.some(function (prefix) {
-    return value.indexOf(prefix) === 0;
   });
 }
 
@@ -141,13 +139,23 @@ function calcPercent(row) {
   return onHand / minimo;
 }
 
-// Calcula el Semáforo de una fila según el CASE:
-//   %  <= 0.2 -> Morado
-//   %  <= 0.3 -> Rojo
-//   %  <= 0.7 -> Amarillo
-//   %  > 0.7  -> Verde
-// Filas sin un "%" numérico no entran a ningún color (quedan fuera del conteo).
+// Calcula el Semáforo de una fila:
+//   Max_Demanda_Dia = 0 -> SinDemanda (sin importar el inventario)
+//   ON_HAND = 0         -> SinInv
+//   si no, según el % (ver calcPercent):
+//     %  <= 0.2 -> Morado
+//     %  <= 0.3 -> Rojo
+//     %  <= 0.7 -> Amarillo
+//     %  > 0.7  -> Verde
+// Filas sin datos numéricos para ninguno de los casos anteriores regresan
+// null (quedan fuera del conteo).
 function calcSemaforo(row) {
+  var maxDemandaDia = Number(row[FIELD_MAX_DEMANDA_DIA]);
+  if (!isNaN(maxDemandaDia) && maxDemandaDia === 0) return 'SinDemanda';
+
+  var onHand = Number(row[FIELD_ON_HAND]);
+  if (!isNaN(onHand) && onHand === 0) return 'SinInv';
+
   var pct = calcPercent(row);
   if (pct === null) return null;
 
@@ -158,7 +166,8 @@ function calcSemaforo(row) {
 }
 
 function groupByColor(rows) {
-  var groups = { Rojo: [], Amarillo: [], Morado: [], Verde: [] };
+  var groups = {};
+  SEMAFORO_CONFIG.forEach(function (cfg) { groups[cfg.key] = []; });
   rows.forEach(function (row) {
     var color = calcSemaforo(row);
     if (color && groups[color]) {
@@ -246,7 +255,7 @@ function renderDetail(rows) {
 
     var color = calcSemaforo(row);
     var tdSemaforo = document.createElement('td');
-    tdSemaforo.textContent = color;
+    tdSemaforo.textContent = SEMAFORO_LABEL_BY_KEY[color] || color;
     tdSemaforo.style.backgroundColor = SEMAFORO_COLOR_BY_KEY[color] || '';
     tdSemaforo.style.color = '#fff';
     tdSemaforo.style.fontWeight = '600';
@@ -267,9 +276,10 @@ function exportDetailToExcel() {
 
   var headers = DISPLAY_COLUMNS.map(function (col) { return col.label; }).concat(['%', 'Semaforo']);
   var rows = lastDetailRows.map(function (row) {
+    var color = calcSemaforo(row);
     return DISPLAY_COLUMNS.map(function (col) {
       return col.numeric ? formatRoundedNumber(row[col.field]) : row[col.field];
-    }).concat([calcPercent(row), calcSemaforo(row)]);
+    }).concat([calcPercent(row), SEMAFORO_LABEL_BY_KEY[color] || color]);
   });
 
   downloadCSV('semaforo_powerstep.csv', toCSV(headers, rows));
