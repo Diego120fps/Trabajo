@@ -13,6 +13,12 @@ var FIELD_MINIMO = 'Minimo';
 var FIELD_MAXIMO = 'Maximo';
 var FIELD_MAX_DEMANDA_DIA = 'Max_Demanda_Dia';
 
+// DIAGNÓSTICO TEMPORAL: si el brick no carga y la consola solo muestra "{}",
+// pon esto en false para quitar Max_Demanda_Dia de la consulta y confirmar
+// si ese es el nombre de columna que está fallando. Vuelve a poner true
+// (y corrige FIELD_MAX_DEMANDA_DIA arriba) en cuanto sepas el nombre real.
+var INCLUIR_MAX_DEMANDA_DIA = true;
+
 // Todas las columnas que se piden al dataset: las de filtro más las que se
 // muestran en la tabla.
 var QUERY_FIELDS = [
@@ -21,9 +27,8 @@ var QUERY_FIELDS = [
   FIELD_ITEM,
   FIELD_ON_HAND,
   FIELD_MINIMO,
-  FIELD_MAXIMO,
-  FIELD_MAX_DEMANDA_DIA
-];
+  FIELD_MAXIMO
+].concat(INCLUIR_MAX_DEMANDA_DIA ? [FIELD_MAX_DEMANDA_DIA] : []);
 
 // Columnas de la tabla de detalle (en orden), con el encabezado que se
 // quiere mostrar. "%" y "Semaforo" son columnas calculadas, se agregan aparte.
@@ -389,6 +394,17 @@ function describeError(err) {
   if (typeof err === 'string') return err;
   if (err.status) return 'HTTP ' + err.status + (err.statusText ? ' ' + err.statusText : '');
   if (err.message) return err.message;
+
+  // Domo a veces rechaza con un objeto "vacío" (sin status/message propios,
+  // típico cuando algún nombre de campo de la query no existe). Revisa
+  // también las propiedades no enumerables antes de rendirse con "{}".
+  var ownProps = Object.getOwnPropertyNames(err);
+  if (ownProps.length > 0) {
+    try {
+      return JSON.stringify(err, ownProps);
+    } catch (e) { /* sigue abajo */ }
+  }
+
   try {
     return JSON.stringify(err);
   } catch (e) {
@@ -398,9 +414,16 @@ function describeError(err) {
 
 function logError(context, err) {
   console.error(context, err);
+  console.error(context + ' - propiedades:', err ? Object.getOwnPropertyNames(err) : err);
+
   if (err && typeof err.text === 'function') {
     err.text().then(function (body) {
-      console.error(context + ' - respuesta del servidor:', body);
+      console.error(context + ' - respuesta del servidor (text):', body);
+    }).catch(function () {});
+  }
+  if (err && typeof err.json === 'function') {
+    err.json().then(function (body) {
+      console.error(context + ' - respuesta del servidor (json):', body);
     }).catch(function () {});
   }
 }
