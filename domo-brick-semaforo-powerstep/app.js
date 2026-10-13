@@ -68,6 +68,12 @@ SEMAFORO_CONFIG.forEach(function (cfg) {
   SEMAFORO_LABEL_BY_KEY[cfg.key] = cfg.label;
 });
 
+// Orden de la tabla de detalle: primero Morado, Rojo, Amarillo, Verde
+// (por bucket de %), y al final Sin Inv y Sin Demanda.
+var TABLE_SORT_ORDER = ['Morado', 'Rojo', 'Amarillo', 'Verde', 'SinInv', 'SinDemanda'];
+var TABLE_SORT_RANK = {};
+TABLE_SORT_ORDER.forEach(function (key, idx) { TABLE_SORT_RANK[key] = idx; });
+
 var PAGE_SIZE = 5000;
 var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
 
@@ -110,10 +116,15 @@ function loadAndRender() {
     });
 
     withSemaforo.sort(function (a, b) {
+      // Primero se agrupa por bucket en el orden de TABLE_SORT_ORDER
+      // (Morado, Rojo, Amarillo, Verde, Sin Inv, Sin Demanda)...
+      var rankA = TABLE_SORT_RANK[calcSemaforo(a)];
+      var rankB = TABLE_SORT_RANK[calcSemaforo(b)];
+      if (rankA !== rankB) return rankA - rankB;
+
+      // ...y dentro del mismo bucket, por % ascendente.
       var pctA = calcPercent(a);
       var pctB = calcPercent(b);
-      // Sin % calculable (Sin Demanda/Sin Inv sin ON_HAND/Minimo numéricos)
-      // se van al final en vez de romper el orden.
       if (pctA === null && pctB === null) return 0;
       if (pctA === null) return 1;
       if (pctB === null) return -1;
@@ -144,7 +155,8 @@ function calcPercent(row) {
   return onHand / minimo;
 }
 
-// Calcula el Semáforo de una fila:
+// Calcula el Semáforo de una fila. Se evalúa en este orden (el primero que
+// aplique gana): Sin Demanda, Sin Inv, Morado, Rojo, Amarillo, Verde.
 //   Max_Demanda_Dia = 0 -> SinDemanda (sin importar el inventario)
 //   ON_HAND = 0         -> SinInv
 //   si no, según el % (ver calcPercent):
