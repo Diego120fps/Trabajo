@@ -117,7 +117,8 @@ body {
 }
 
 .filter-group input[type="text"],
-.filter-group input[type="number"] {
+.filter-group input[type="number"],
+.filter-group select {
   min-width: 200px;
   padding: 6px 8px;
   border: 1px solid #cfd4da;
@@ -126,7 +127,8 @@ body {
   font-size: 13px;
 }
 
-.filter-group input:focus {
+.filter-group input:focus,
+.filter-group select:focus {
   outline: none;
   border-color: #0b6ecc;
   box-shadow: 0 0 0 2px rgba(11, 110, 204, 0.15);

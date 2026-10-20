@@ -12,6 +12,13 @@ var FIELD_QTY_DISPONIBLE = 'ILOC_QTY_ON_HAND';   // Cantidad disponible en esa l
 var FIELD_FIFO_ORDEN = 'ILOC_DATE_LAST_RECEIPT'; // Fecha de último recibo: se usa para ordenar FIFO
 var INVENTARIO_LIMIT = 5000;
 
+// Localidad que nunca cuenta como disponible (ni para el FIFO ni para
+// validar la cantidad solicitada en Alta) -- ajusta aquí si cambia.
+var LOCALIDAD_EXCLUIDA = 'SMK';
+
+// Opciones del select de Línea. Edítalas aquí si cambian.
+var LINEA_OPTIONS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'];
+
 // Este almacén solo surte desde estos Branch/Plant (mismo grupo "Plataforma"
 // que domo-brick-branch-item-pivot). El operador "in (...)" de la Data API
 // de DOMO no se comportó confiable con varios valores, así que se hace UNA
@@ -109,6 +116,8 @@ var fifoCache = {};
 init();
 
 function init() {
+  poblarLineaOptions();
+
   tabBtnAlta.addEventListener('click', function () { switchTab('alta'); });
   tabBtnAlmacen.addEventListener('click', function () { switchTab('almacen'); });
   tabBtnSemaforo.addEventListener('click', function () { switchTab('semaforo'); });
@@ -265,14 +274,30 @@ function cargarAlmacenUsuarios() {
     .get(ALMACEN_DOCS_URL + '?limit=1000')
     .then(function (docs) {
       almacenUsuarios = docs || [];
-      isAlmacen = !!CURRENT_USER.id && almacenUsuarios.some(function (doc) {
+      var coincidePorId = !!CURRENT_USER.id && almacenUsuarios.some(function (doc) {
         return doc.content.userId === CURRENT_USER.id;
       });
+      // Match automático por nombre: si ya precargaste "almacen_usuarios"
+      // con los nombres del equipo, con solo escribir su nombre quedan
+      // identificados como Almacén, sin dar clic en "Registrarme".
+      isAlmacen = coincidePorId || nombreCoincideConAlmacen(CURRENT_USER.label);
     })
     .catch(function () {
       almacenUsuarios = [];
       isAlmacen = false;
     });
+}
+
+function nombreCoincideConAlmacen(nombre) {
+  var normalizado = normalizarTexto(nombre);
+  if (!normalizado) return false;
+  return almacenUsuarios.some(function (doc) {
+    return normalizarTexto(doc.content.nombre) === normalizado;
+  });
+}
+
+function normalizarTexto(s) {
+  return (s || '').trim().toLowerCase();
 }
 
 function renderRoleUI() {
@@ -284,6 +309,11 @@ function renderRoleUI() {
   roleBadgeEl.className = 'role-badge ' + (isAlmacen ? 'role-almacen' : 'role-solicitante');
   btnRegistrarAlmacen.style.display = !isAlmacen && CURRENT_USER.id ? '' : 'none';
   btnQuitarAlmacen.style.display = isAlmacen ? '' : 'none';
+  // "Quien solicita" se autocompleta con el nombre capturado, sin pisar lo
+  // que la persona ya haya escrito a mano.
+  if (CURRENT_USER.id && solicitanteInput.value.trim() === '') {
+    solicitanteInput.value = CURRENT_USER.label;
+  }
   renderTable();
 }
 
@@ -306,7 +336,14 @@ function registrarmeComoAlmacen() {
 }
 
 function dejarDeSerAlmacen() {
-  var doc = almacenUsuarios.filter(function (d) { return d.content.userId === CURRENT_USER.id; })[0];
+  // Busca por userId (autoregistro) o por nombre (precargado a mano/por
+  // coincidencia automática), lo que haya hecho match.
+  var doc = almacenUsuarios.filter(function (d) {
+    return (
+      (CURRENT_USER.id && d.content.userId === CURRENT_USER.id) ||
+      normalizarTexto(d.content.nombre) === normalizarTexto(CURRENT_USER.label)
+    );
+  })[0];
   if (!doc) return;
   setLoading(true);
   domo
@@ -322,10 +359,19 @@ function dejarDeSerAlmacen() {
 }
 
 // ---------- ALTA ----------
+function poblarLineaOptions() {
+  LINEA_OPTIONS.forEach(function (valor) {
+    var opt = document.createElement('option');
+    opt.value = valor;
+    opt.textContent = valor;
+    lineaInput.appendChild(opt);
+  });
+}
+
 function crearSolicitud() {
   var solicitante = solicitanteInput.value.trim();
   var item = itemInput.value.trim();
-  var linea = lineaInput.value.trim();
+  var linea = lineaInput.value;
   var cantidadRaw = cantidadInput.value.trim();
 
   if (!solicitante || !item || !linea || cantidadRaw === '') {
@@ -338,26 +384,36 @@ function crearSolicitud() {
     return;
   }
 
-  var content = {
-    folio: nextFolio(),
-    solicitante: solicitante,
-    item: item,
-    linea: linea,
-    cantidad: cantidad,
-    fechaHoraInsert: new Date().toISOString(),
-    estatus: ESTATUS_INICIAL
-  };
-
   setLoading(true);
   showStatus('');
-  domo
-    .post(DOCS_URL, { content: content })
-    .then(function () {
-      solicitanteInput.value = '';
-      itemInput.value = '';
-      lineaInput.value = '';
-      cantidadInput.value = '';
-      return cargarSolicitudes();
+
+  validarInventarioDisponible(item)
+    .then(function (disponible) {
+      // disponible === null cuando no hay dataset de Inventario seleccionado
+      // todavía: en ese caso no se puede validar, así que se deja crear.
+      if (disponible !== null && disponible < cantidad) {
+        showStatus(
+          'Inventario insuficiente: disponible ' + formatNumber(disponible) +
+          ' de ' + formatNumber(cantidad) + ' solicitadas (no incluye la localidad ' + LOCALIDAD_EXCLUIDA + ').'
+        );
+        return null;
+      }
+
+      var content = {
+        folio: nextFolio(),
+        solicitante: solicitante,
+        item: item,
+        linea: linea,
+        cantidad: cantidad,
+        fechaHoraInsert: new Date().toISOString(),
+        estatus: ESTATUS_INICIAL
+      };
+      return domo.post(DOCS_URL, { content: content }).then(function () {
+        itemInput.value = '';
+        lineaInput.value = '';
+        cantidadInput.value = '';
+        return cargarSolicitudes();
+      });
     })
     .catch(function (err) {
       showStatus('No se pudo crear la solicitud: ' + describeError(err));
@@ -365,6 +421,18 @@ function crearSolicitud() {
     .then(function () {
       setLoading(false);
     });
+}
+
+// Cantidad disponible del item (sumando todos los Branch/Plant de
+// BRANCH_CODES, sin contar LOCALIDAD_EXCLUIDA). Regresa null si no hay
+// dataset de Inventario seleccionado y por lo tanto no se puede validar.
+function validarInventarioDisponible(item) {
+  if (!datasetId) return Promise.resolve(null);
+  return fetchInventoryRows(item).then(function (rows) {
+    return rows.reduce(function (sum, r) {
+      return sum + (Number(r[FIELD_QTY_DISPONIBLE]) || 0);
+    }, 0);
+  });
 }
 
 function nextFolio() {
@@ -638,6 +706,11 @@ function fetchInventoryRows(itemCode) {
       [],
       results.map(function (r) { return r || []; })
     );
+    // La localidad excluida (ver LOCALIDAD_EXCLUIDA) nunca cuenta como
+    // disponible, ni para el FIFO ni para validar la cantidad en Alta.
+    rows = rows.filter(function (r) {
+      return r[FIELD_LOCATION] !== LOCALIDAD_EXCLUIDA;
+    });
     rows.sort(function (a, b) {
       return new Date(a[FIELD_FIFO_ORDEN]) - new Date(b[FIELD_FIFO_ORDEN]);
     });
