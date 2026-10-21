@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Tablero de Métricos</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label for="cutoffInput">Fecha de corte</label>
+        <input type="date" id="cutoffInput" />
+        <span class="hint">Por defecto hoy. Cambia para ver el tablero "como estaba" otro día</span>
+      </div>
+
+      <div class="filter-actions">
+        <button id="btnActualizar">Actualizar</button>
+        <button id="btnExport" class="secondary">Exportar a Excel</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+
+    <div class="table-wrapper scorecard-wrapper">
+      <table id="scorecardTable">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <span id="legend" class="hint"></span>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
