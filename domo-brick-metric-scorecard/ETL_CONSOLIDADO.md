@@ -49,18 +49,20 @@ Input: **JDE 9.0 - View - Inventory Cycle Counts**
 5. **Add Constants**: `Metrico` = `Accuracy`, `Formato` = `%`.
 6. **Select Columns**: `Planta`, `Metrico`, `Fecha`, `Valor`, `Base`, `Formato`.
 
-## Rama 2: Capacidad (SQL DataFlow MySQL)
+## Rama 2: Capacidad (tile SQL dentro del Magic ETL)
 
-Inputs: `reference_layoutwh`, `InventoryHistoryGDL`. La salida de este
-DataFlow entra como input al Magic ETL consolidado y se une con Append Rows.
+Inputs conectados al tile SQL: `reference_layoutwh`, `InventoryHistoryGDL`.
+Sin comentarios `--` (el tile junta todo en una línea y comentaría el resto)
+y sin `CAST(... AS DECIMAL(p,s))` (no lo acepta). `COUNT` ya regresa entero,
+igual que la suma de 1/0 de Accuracy, así que el Append recibe el mismo tipo.
 
 ```sql
 SELECT
     inv.Planta,
     'Capacidad' AS Metrico,
     inv.Fecha,
-    CAST(COUNT(DISTINCT inv.Localidad) AS DECIMAL(18,4)) AS Valor,
-    CAST(MAX(tot.Total) AS DECIMAL(18,4)) AS Base,
+    COUNT(DISTINCT inv.Localidad) AS Valor,
+    MAX(tot.Total) AS Base,
     '%' AS Formato
 FROM (
     SELECT
@@ -72,13 +74,10 @@ FROM (
         END AS Planta,
         i.`ILOC_LOCATION` AS Localidad
     FROM `InventoryHistoryGDL` i
-    -- WHERE i.<cantidad_en_mano> > 0   -- si el histórico trae renglones en 0
 ) inv
--- Solo cuentan localidades que existen en el layout (evita pasar de 100%)
 JOIN `reference_layoutwh` l
     ON l.`Localidad` = inv.Localidad
    AND l.`BU` = inv.Planta
--- Denominador: total de localidades del layout por planta (no depende de la fecha)
 JOIN (
     SELECT `BU` AS Planta, COUNT(DISTINCT `Localidad`) AS Total
     FROM `reference_layoutwh`
@@ -89,6 +88,13 @@ JOIN (
 WHERE inv.Planta IS NOT NULL
 GROUP BY inv.Planta, inv.Fecha
 ```
+
+- El JOIN contra el layout hace que solo cuenten localidades que existen en
+  él (nunca pasa de 100%).
+- `tot.Total` es el total de localidades del layout por planta; no depende
+  de la fecha (con el LEFT JOIN original las vacías quedaban con Fecha nula).
+- Si el histórico trae renglones con existencia 0, agrega
+  `WHERE <cantidad_en_mano> > 0` dentro del subquery `inv`.
 
 Capacidad es una foto del día (no un flujo): en el tablero, el día muestra
 la ocupación de ese día y la semana / mes / año muestran la **ocupación
