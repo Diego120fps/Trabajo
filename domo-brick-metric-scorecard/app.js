@@ -39,8 +39,10 @@ var GROUP_TITLES = {
 };
 
 // El dataset ya viene agregado por día, así que es chico (plantas x
-// métricos x días); se trae completo para el rango en páginas con orderby
-// fijo y se agrega en el navegador. Cambiar de planta no vuelve a consultar.
+// métricos x días); se trae COMPLETO en páginas con orderby fijo y se
+// agrega en el navegador (cada periodo solo suma los días de su rango).
+// No se filtra la fecha en el servidor: el filtro Fecha>='YYYY-MM-DD' de
+// la Data API falló sin dar detalle. Cambiar de planta no vuelve a consultar.
 var PAGE_SIZE = 5000;
 var MAX_PAGES = 200;
 
@@ -125,14 +127,8 @@ function loadData() {
     return;
   }
 
-  // Rango total a consultar: del inicio más antiguo al fin más reciente.
-  var rangeStart = periods.reduce(function (min, p) { return p.start < min ? p.start : min; }, periods[0].start);
-  var rangeEnd = periods.reduce(function (max, p) { return p.end > max ? p.end : max; }, periods[0].end);
-
-  var filter = FIELD_FECHA + ">='" + rangeStart + "'," + FIELD_FECHA + "<='" + rangeEnd + "'";
-
   setStatus('Cargando...');
-  fetchAllRows(filter, function (rows) {
+  fetchAllRows(function (rows) {
     lastRows = rows;
     renderPlantRadios(rows);
     render();
@@ -140,10 +136,28 @@ function loadData() {
   }, function (err) {
     logError('Error cargando el dataset consolidado', err);
     setStatus('No se pudo cargar el dataset. ' + describeError(err));
+    showDatasetColumns();
   });
 }
 
-function fetchAllRows(filter, onDone, onError) {
+// Diagnóstico: si la consulta falla, pide 1 fila sin "fields" para mostrar
+// qué columnas trae realmente el dataset de la posición 0 (un nombre mal
+// escrito o con otra mayúscula hace fallar toda la consulta).
+function showDatasetColumns() {
+  domo.get('/data/v1/' + datasetId + '?limit=1')
+    .then(function (data) {
+      var row = (data || [])[0];
+      var columns = row ? Object.keys(row).join(', ') : '(dataset vacío)';
+      var expected = [FIELD_PLANTA, FIELD_METRICO, FIELD_FECHA, FIELD_VALOR, FIELD_BASE, FIELD_FORMATO].join(', ');
+      setStatus(statusMsg.textContent + ' | Columnas del dataset: ' + columns + ' | Esperadas: ' + expected);
+    })
+    .catch(function (err) {
+      logError('Error leyendo 1 fila del dataset', err);
+      setStatus(statusMsg.textContent + ' | Tampoco se pudo leer 1 fila: revisa que el dataset esté asignado en la posición 0 del brick.');
+    });
+}
+
+function fetchAllRows(onDone, onError) {
   var fields = [FIELD_PLANTA, FIELD_METRICO, FIELD_FECHA, FIELD_VALOR, FIELD_BASE, FIELD_FORMATO];
   var collected = [];
   var offset = 0;
@@ -158,7 +172,6 @@ function fetchAllRows(filter, onDone, onError) {
 
     var query = '/data/v1/' + datasetId +
       '?fields=' + fields.join() +
-      '&filter=' + filter +
       '&orderby=' + FIELD_METRICO + ',' + FIELD_PLANTA + ',' + FIELD_FECHA +
       '&limit=' + PAGE_SIZE +
       '&offset=' + offset;
@@ -484,11 +497,15 @@ function describeError(err) {
   if (typeof err === 'string') return err;
   if (err.status) return 'HTTP ' + err.status + (err.statusText ? ' ' + err.statusText : '');
   if (err.message) return err.message;
+  if (err.responseText) return err.responseText;
+  var text = '';
   try {
-    return JSON.stringify(err);
+    text = JSON.stringify(err);
   } catch (e) {
-    return String(err);
+    text = '';
   }
+  // Algunos errores se serializan como "{}"; String() al menos da el tipo.
+  return text && text !== '{}' ? text : String(err);
 }
 
 function logError(context, err) {
