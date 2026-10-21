@@ -15,7 +15,7 @@ var datasetId = datasets[0];
 
 // Orden de las filas. Los métricos que no estén aquí se agregan al final
 // en orden alfabético.
-var METRIC_ORDER = ['Accuracy'];
+var METRIC_ORDER = ['Accuracy', 'Capacidad'];
 
 // Decimales por formato. '%' se calcula como SUM(Valor) / SUM(Base) del
 // periodo (nunca promediando porcentajes diarios); '$' y '#' como SUM(Valor).

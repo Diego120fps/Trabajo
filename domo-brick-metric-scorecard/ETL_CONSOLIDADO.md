@@ -49,6 +49,51 @@ Input: **JDE 9.0 - View - Inventory Cycle Counts**
 5. **Add Constants**: `Metrico` = `Accuracy`, `Formato` = `%`.
 6. **Select Columns**: `Planta`, `Metrico`, `Fecha`, `Valor`, `Base`, `Formato`.
 
+## Rama 2: Capacidad (SQL DataFlow MySQL)
+
+Inputs: `reference_layoutwh`, `InventoryHistoryGDL`. La salida de este
+DataFlow entra como input al Magic ETL consolidado y se une con Append Rows.
+
+```sql
+SELECT
+    inv.Planta,
+    'Capacidad' AS Metrico,
+    inv.Fecha,
+    CAST(COUNT(DISTINCT inv.Localidad) AS DECIMAL(18,4)) AS Valor,
+    CAST(MAX(tot.Total) AS DECIMAL(18,4)) AS Base,
+    '%' AS Formato
+FROM (
+    SELECT
+        DATE(i.`UPDATED_TIMESTAMP`) AS Fecha,
+        CASE
+            WHEN TRIM(i.`ILOC_BRANCH_PLANT`) IN ('1221','2300') THEN 'PLATAFORMA'
+            WHEN TRIM(i.`ILOC_BRANCH_PLANT`) = '2200' THEN 'AMP'
+            WHEN TRIM(i.`ILOC_BRANCH_PLANT`) = '2190' THEN 'CALLE 2'
+        END AS Planta,
+        i.`ILOC_LOCATION` AS Localidad
+    FROM `InventoryHistoryGDL` i
+    -- WHERE i.<cantidad_en_mano> > 0   -- si el histórico trae renglones en 0
+) inv
+-- Solo cuentan localidades que existen en el layout (evita pasar de 100%)
+JOIN `reference_layoutwh` l
+    ON l.`Localidad` = inv.Localidad
+   AND l.`BU` = inv.Planta
+-- Denominador: total de localidades del layout por planta (no depende de la fecha)
+JOIN (
+    SELECT `BU` AS Planta, COUNT(DISTINCT `Localidad`) AS Total
+    FROM `reference_layoutwh`
+    WHERE `BU` IN ('PLATAFORMA','AMP','CALLE 2')
+    GROUP BY `BU`
+) tot
+    ON tot.Planta = inv.Planta
+WHERE inv.Planta IS NOT NULL
+GROUP BY inv.Planta, inv.Fecha
+```
+
+Capacidad es una foto del día (no un flujo): en el tablero, el día muestra
+la ocupación de ese día y la semana / mes / año muestran la **ocupación
+promedio** del periodo (localidades ocupadas-día / localidades totales-día).
+
 ## Siguientes métricos
 
 Copia el patrón: cada rama termina en las mismas 6 columnas, con los mismos
