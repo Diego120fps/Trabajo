@@ -1,56 +1,31 @@
 var domo = window.domo;
 var datasets = window.datasets;
 
-// ---------- Configuración de métricos ----------
-//
-// Cada objeto es UNA fila del tablero. Ajusta aquí tus métricos:
-//
-//   label      Nombre que se muestra en la fila.
-//   dataset    Índice del dataset en los botones del brick (0 = primero,
-//              1 = segundo, ...). Varios métricos pueden usar el mismo
-//              dataset (ej. un dataset consolidado con columna "Metrica",
-//              usando "filters" para separar cada uno).
-//   dateField  Columna de fecha del dataset.
-//   dateType   'julian' (JDE CYYDDD, ej. 126294) o 'date' ('YYYY-MM-DD').
-//   valueField Columna a medir.
-//   agg        'sum' | 'count' | 'countDistinct' | 'avg'.
-//   divisor    (opcional) Se divide el resultado entre esto (ej. 100).
-//   decimals   (opcional) Decimales a mostrar. Default 0.
-//   prefix / suffix (opcional) Ej. '$' o '%'.
-//   filters    (opcional) Filtros extra de la Data API, ej. ["ildct='IM'"].
-var METRICS = [
-  {
-    label: 'Costo de transacciones',
-    dataset: 0,
-    dateField: 'iltrdj',
-    dateType: 'julian',
-    valueField: 'ilpaid',
-    agg: 'sum',
-    divisor: 100,
-    decimals: 2,
-    prefix: '$'
-  },
-  {
-    label: 'Documentos',
-    dataset: 0,
-    dateField: 'iltrdj',
-    dateType: 'julian',
-    valueField: 'ildoc',
-    agg: 'countDistinct'
-  },
-  {
-    label: 'Métrico del dataset 2',
-    dataset: 1,
-    dateField: 'fecha',
-    dateType: 'date',
-    valueField: 'valor',
-    agg: 'sum'
-  }
-];
+// Dataset consolidado (salida del ETL "Tablero Metricos - Consolidado"),
+// seleccionado en el botón de dataset del brick. Una fila por
+// Planta + Metrico + Fecha, con estas columnas:
+var FIELD_PLANTA = 'Planta';
+var FIELD_METRICO = 'Metrico';
+var FIELD_FECHA = 'Fecha';     // tipo Date ('YYYY-MM-DD')
+var FIELD_VALOR = 'Valor';     // numerador (o el valor tal cual)
+var FIELD_BASE = 'Base';       // denominador (solo para '%')
+var FIELD_FORMATO = 'Formato'; // '%', '$' o '#'
+
+var datasetId = datasets[0];
+
+// Orden de las filas. Los métricos que no estén aquí se agregan al final
+// en orden alfabético.
+var METRIC_ORDER = ['Accuracy'];
+
+// Decimales por formato. '%' se calcula como SUM(Valor) / SUM(Base) del
+// periodo (nunca promediando porcentajes diarios); '$' y '#' como SUM(Valor).
+var FORMAT_DECIMALS = { '%': 1, '$': 2, '#': 0 };
 
 // false = solo días CERRADOS (el YTD y los días de la semana llegan hasta
 // ayer). true = incluye el día de hoy (parcial).
 var INCLUDE_TODAY = false;
+
+var ALL_PLANTS = 'Todas';
 
 // La semana corre de lunes a domingo.
 var MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
@@ -63,13 +38,13 @@ var GROUP_TITLES = {
   day: 'Días de la semana'
 };
 
-// Mismo criterio que el brick del pivote: para traer filas crudas se pagina
-// con orderby fijo. Para 'sum' / 'count' se le pide a Domo que agrupe por
-// día (máximo ~400 grupos), que es un resultado chico.
+// El dataset ya viene agregado por día, así que es chico (plantas x
+// métricos x días); se trae completo para el rango en páginas con orderby
+// fijo y se agrega en el navegador. Cambiar de planta no vuelve a consultar.
 var PAGE_SIZE = 5000;
-var MAX_PAGES = 500;
-var GROUPBY_LIMIT = 5000;
+var MAX_PAGES = 200;
 
+var plantRadios = document.getElementById('plantRadios');
 var cutoffInput = document.getElementById('cutoffInput');
 var btnActualizar = document.getElementById('btnActualizar');
 var btnExport = document.getElementById('btnExport');
@@ -77,18 +52,19 @@ var statusMsg = document.getElementById('statusMsg');
 var scorecardTable = document.getElementById('scorecardTable');
 var legendEl = document.getElementById('legend');
 
-// Periodos (columnas) y valores calculados del último tablero generado,
-// usados para exportar.
+// Filas del último rango consultado, y lo que se pintó (para exportar).
+var lastRows = [];
 var lastPeriods = [];
-var lastValues = [];
+var lastMetrics = [];
 
 init();
 
 function init() {
   cutoffInput.value = toKey(today());
-  btnActualizar.addEventListener('click', buildScorecard);
+  btnActualizar.addEventListener('click', loadData);
   btnExport.addEventListener('click', exportToExcel);
-  buildScorecard();
+  plantRadios.addEventListener('change', render);
+  loadData();
 }
 
 // ---------- Paso 1: calcular las columnas (periodos) ----------
@@ -133,18 +109,18 @@ function buildPeriods(cutoff) {
   return periods;
 }
 
-// ---------- Paso 2: traer datos de cada métrico ----------
+// ---------- Paso 2: traer el dataset consolidado del rango ----------
 
-function buildScorecard() {
+function loadData() {
   var cutoff = parseKey(cutoffInput.value) || today();
   var periods = buildPeriods(cutoff);
 
   lastPeriods = periods;
-  lastValues = METRICS.map(function () { return { state: 'loading' }; });
-  renderTable(periods, lastValues);
+  lastRows = [];
   renderLegend(cutoff);
 
   if (periods.length === 0) {
+    render();
     setStatus('No hay periodos cerrados para la fecha de corte seleccionada.');
     return;
   }
@@ -153,88 +129,22 @@ function buildScorecard() {
   var rangeStart = periods.reduce(function (min, p) { return p.start < min ? p.start : min; }, periods[0].start);
   var rangeEnd = periods.reduce(function (max, p) { return p.end > max ? p.end : max; }, periods[0].end);
 
-  setStatus('');
-  var pending = METRICS.length;
+  var filter = FIELD_FECHA + ">='" + rangeStart + "'," + FIELD_FECHA + "<='" + rangeEnd + "'";
 
-  METRICS.forEach(function (metric, idx) {
-    fetchDailyBuckets(metric, rangeStart, rangeEnd, function (buckets) {
-      lastValues[idx] = {
-        state: 'ok',
-        values: periods.map(function (p) { return computePeriodValue(metric, buckets, p); })
-      };
-      renderTable(periods, lastValues);
-      pending -= 1;
-    }, function (err) {
-      logError('Error cargando "' + metric.label + '"', err);
-      lastValues[idx] = { state: 'error', message: describeError(err) };
-      renderTable(periods, lastValues);
-      setStatus('No se pudo cargar "' + metric.label + '". ' + describeError(err));
-      pending -= 1;
-    });
+  setStatus('Cargando...');
+  fetchAllRows(filter, function (rows) {
+    lastRows = rows;
+    renderPlantRadios(rows);
+    render();
+    setStatus('');
+  }, function (err) {
+    logError('Error cargando el dataset consolidado', err);
+    setStatus('No se pudo cargar el dataset. ' + describeError(err));
   });
 }
 
-// Deja los datos del métrico resumidos por día:
-//   { 'YYYY-MM-DD': { sum, count, distinct: {valor: true} } }
-// Así cualquier periodo (año, mes, semana, día) se arma sumando días.
-function fetchDailyBuckets(metric, startKey, endKey, onDone, onError) {
-  var datasetId = datasets[metric.dataset];
-  if (!datasetId) {
-    onError(new Error('No hay dataset en la posición ' + metric.dataset + ' del brick.'));
-    return;
-  }
-
-  var filter = [
-    metric.dateField + '>=' + dateFilterValue(metric, startKey),
-    metric.dateField + '<=' + dateFilterValue(metric, endKey)
-  ].concat(metric.filters || []).join(',');
-
-  if (metric.agg === 'sum' || metric.agg === 'count') {
-    var query = '/data/v1/' + datasetId +
-      '?fields=' + metric.dateField + ',' + metric.valueField +
-      '&' + metric.agg + '=' + metric.valueField +
-      '&groupby=' + metric.dateField +
-      '&filter=' + filter +
-      '&orderby=' + metric.dateField +
-      '&limit=' + GROUPBY_LIMIT;
-
-    console.log('Query "' + metric.label + '":', query);
-    domo.get(query)
-      .then(function (rows) {
-        var buckets = {};
-        (rows || []).forEach(function (row) {
-          var key = rowDateKey(metric, row[metric.dateField]);
-          if (!key) return;
-          var bucket = getBucket(buckets, key);
-          var value = Number(row[metric.valueField]) || 0;
-          bucket.sum += value;
-          bucket.count += value;
-        });
-        onDone(buckets);
-      })
-      .catch(onError);
-    return;
-  }
-
-  // 'countDistinct' y 'avg' no se pueden re-sumar desde agregados por día,
-  // así que se traen las filas crudas (solo las 2 columnas necesarias).
-  fetchAllRows(datasetId, metric, filter, function (rows) {
-    var buckets = {};
-    rows.forEach(function (row) {
-      var key = rowDateKey(metric, row[metric.dateField]);
-      if (!key) return;
-      var bucket = getBucket(buckets, key);
-      var raw = row[metric.valueField];
-      if (raw === null || raw === undefined || raw === '') return;
-      bucket.sum += Number(raw) || 0;
-      bucket.count += 1;
-      bucket.distinct[raw] = true;
-    });
-    onDone(buckets);
-  }, onError);
-}
-
-function fetchAllRows(datasetId, metric, filter, onDone, onError) {
+function fetchAllRows(filter, onDone, onError) {
+  var fields = [FIELD_PLANTA, FIELD_METRICO, FIELD_FECHA, FIELD_VALOR, FIELD_BASE, FIELD_FORMATO];
   var collected = [];
   var offset = 0;
   var page = 0;
@@ -247,13 +157,13 @@ function fetchAllRows(datasetId, metric, filter, onDone, onError) {
     }
 
     var query = '/data/v1/' + datasetId +
-      '?fields=' + metric.dateField + ',' + metric.valueField +
+      '?fields=' + fields.join() +
       '&filter=' + filter +
-      '&orderby=' + metric.dateField + ',' + metric.valueField +
+      '&orderby=' + FIELD_METRICO + ',' + FIELD_PLANTA + ',' + FIELD_FECHA +
       '&limit=' + PAGE_SIZE +
       '&offset=' + offset;
 
-    console.log('Query "' + metric.label + '" (página ' + page + '):', query);
+    console.log('Query Tablero (página ' + page + '):', query);
 
     domo.get(query)
       .then(function (data) {
@@ -272,41 +182,101 @@ function fetchAllRows(datasetId, metric, filter, onDone, onError) {
   fetchPage();
 }
 
-function getBucket(buckets, key) {
-  if (!buckets[key]) {
-    buckets[key] = { sum: 0, count: 0, distinct: {} };
-  }
-  return buckets[key];
-}
+// ---------- Planta: radios dinámicos según lo que venga en el dataset ----------
 
-// Junta los días del periodo y aplica la agregación del métrico.
-function computePeriodValue(metric, buckets, period) {
-  var sum = 0;
-  var count = 0;
-  var distinct = {};
+function renderPlantRadios(rows) {
+  var current = getSelectedPlant();
+  var plants = distinctValues(rows, FIELD_PLANTA);
 
-  Object.keys(buckets).forEach(function (key) {
-    if (key < period.start || key > period.end) return;
-    var bucket = buckets[key];
-    sum += bucket.sum;
-    count += bucket.count;
-    Object.keys(bucket.distinct).forEach(function (v) { distinct[v] = true; });
+  plantRadios.innerHTML = '';
+  [ALL_PLANTS].concat(plants).forEach(function (plant) {
+    var label = document.createElement('label');
+
+    var radio = document.createElement('input');
+    radio.type = 'radio';
+    radio.name = 'plantRadio';
+    radio.value = plant;
+    radio.className = 'plant-radio';
+    radio.checked = plant === current;
+
+    label.appendChild(radio);
+    label.appendChild(document.createTextNode(plant));
+    plantRadios.appendChild(label);
   });
 
-  var value;
-  if (metric.agg === 'sum') value = sum;
-  else if (metric.agg === 'count') value = count;
-  else if (metric.agg === 'countDistinct') value = Object.keys(distinct).length;
-  else if (metric.agg === 'avg') value = count > 0 ? sum / count : null;
-  else value = null;
-
-  if (value !== null && metric.divisor) value = value / metric.divisor;
-  return value;
+  if (!plantRadios.querySelector('.plant-radio:checked')) {
+    plantRadios.querySelector('.plant-radio').checked = true;
+  }
 }
 
-// ---------- Paso 3: pintar la tabla ----------
+function getSelectedPlant() {
+  var checked = plantRadios.querySelector('.plant-radio:checked');
+  return checked ? checked.value : ALL_PLANTS;
+}
 
-function renderTable(periods, values) {
+// ---------- Paso 3: agregar por métrico y periodo ----------
+
+function render() {
+  var plant = getSelectedPlant();
+  var rows = lastRows.filter(function (row) {
+    return plant === ALL_PLANTS || row[FIELD_PLANTA] === plant;
+  });
+
+  lastMetrics = aggregateMetrics(rows, lastPeriods);
+  renderTable(lastPeriods, lastMetrics);
+}
+
+// Regresa [{ name, format, values: [valor por periodo] }] en el orden de
+// METRIC_ORDER. Valor y Base se suman por periodo y al final se divide
+// (para '%'), así el porcentaje del mes pondera bien cada conteo.
+function aggregateMetrics(rows, periods) {
+  var byMetric = {};
+
+  rows.forEach(function (row) {
+    var name = row[FIELD_METRICO];
+    var key = String(row[FIELD_FECHA] || '').substring(0, 10);
+    if (!name || !key) return;
+
+    if (!byMetric[name]) {
+      byMetric[name] = {
+        name: name,
+        format: row[FIELD_FORMATO] || '#',
+        totals: periods.map(function () { return { valor: 0, base: 0 }; })
+      };
+    }
+
+    var valor = Number(row[FIELD_VALOR]) || 0;
+    var base = Number(row[FIELD_BASE]) || 0;
+    periods.forEach(function (p, i) {
+      if (key < p.start || key > p.end) return;
+      byMetric[name].totals[i].valor += valor;
+      byMetric[name].totals[i].base += base;
+    });
+  });
+
+  var metrics = Object.keys(byMetric).map(function (name) {
+    var metric = byMetric[name];
+    metric.values = metric.totals.map(function (t) {
+      if (metric.format === '%') return t.base > 0 ? t.valor / t.base : null;
+      return t.valor;
+    });
+    return metric;
+  });
+
+  metrics.sort(function (a, b) {
+    var ia = METRIC_ORDER.indexOf(a.name);
+    var ib = METRIC_ORDER.indexOf(b.name);
+    if (ia === -1) ia = METRIC_ORDER.length;
+    if (ib === -1) ib = METRIC_ORDER.length;
+    return ia !== ib ? ia - ib : String(a.name).localeCompare(String(b.name));
+  });
+
+  return metrics;
+}
+
+// ---------- Paso 4: pintar la tabla ----------
+
+function renderTable(periods, metrics) {
   var thead = scorecardTable.querySelector('thead');
   var tbody = scorecardTable.querySelector('tbody');
   thead.innerHTML = '';
@@ -346,28 +316,29 @@ function renderTable(periods, values) {
   });
   thead.appendChild(periodRow);
 
-  METRICS.forEach(function (metric, idx) {
+  if (metrics.length === 0) {
+    var emptyRow = document.createElement('tr');
+    var td = document.createElement('td');
+    td.colSpan = periods.length + 1;
+    td.className = 'empty-cell';
+    td.textContent = 'Sin datos para la selección actual.';
+    emptyRow.appendChild(td);
+    tbody.appendChild(emptyRow);
+    return;
+  }
+
+  metrics.forEach(function (metric) {
     var tr = document.createElement('tr');
     var tdLabel = document.createElement('td');
     tdLabel.className = 'metric-col';
-    tdLabel.textContent = metric.label;
+    tdLabel.textContent = metric.name;
     tr.appendChild(tdLabel);
 
-    var result = values[idx];
     periods.forEach(function (p, i) {
-      var td = document.createElement('td');
-      td.className = 'numeric cell-' + p.group + (isGroupStart(periods, i) ? ' group-start' : '');
-      if (result.state === 'loading') {
-        td.textContent = '…';
-        td.classList.add('muted');
-      } else if (result.state === 'error') {
-        td.textContent = 'Error';
-        td.classList.add('error-cell');
-        td.title = result.message;
-      } else {
-        td.textContent = formatValue(metric, result.values[i]);
-      }
-      tr.appendChild(td);
+      var tdValue = document.createElement('td');
+      tdValue.className = 'numeric cell-' + p.group + (isGroupStart(periods, i) ? ' group-start' : '');
+      tdValue.textContent = formatValue(metric.format, metric.values[i]);
+      tr.appendChild(tdValue);
     });
 
     tbody.appendChild(tr);
@@ -391,11 +362,14 @@ function isGroupStart(periods, i) {
   return i === 0 || periods[i - 1].group !== periods[i].group;
 }
 
-function formatValue(metric, value) {
+function formatValue(format, value) {
   if (value === null || value === undefined) return '–';
-  var decimals = metric.decimals || 0;
-  var text = value.toLocaleString('es-MX', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
-  return (metric.prefix || '') + text + (metric.suffix || '');
+  var decimals = FORMAT_DECIMALS[format] !== undefined ? FORMAT_DECIMALS[format] : 0;
+  var shown = format === '%' ? value * 100 : value;
+  var text = shown.toLocaleString('es-MX', { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  if (format === '%') return text + '%';
+  if (format === '$') return '$' + text;
+  return text;
 }
 
 function renderLegend(cutoff) {
@@ -408,19 +382,20 @@ function renderLegend(cutoff) {
 // ---------- Exportar a Excel (CSV) ----------
 
 function exportToExcel() {
-  if (!lastPeriods.length) {
+  if (!lastMetrics.length) {
     setStatus('No hay datos para exportar.');
     return;
   }
 
-  var headers = ['Métrico'].concat(lastPeriods.map(function (p) {
+  var headers = ['Planta', 'Métrico'].concat(lastPeriods.map(function (p) {
     return GROUP_TITLES[p.group] + ' - ' + p.label + (p.sub ? ' (' + p.sub + ')' : '');
   }));
 
-  var rows = METRICS.map(function (metric, idx) {
-    var result = lastValues[idx];
-    return [metric.label].concat(lastPeriods.map(function (p, i) {
-      return result.state === 'ok' ? result.values[i] : '';
+  var plant = getSelectedPlant();
+  var rows = lastMetrics.map(function (metric) {
+    return [plant, metric.name].concat(metric.values.map(function (v) {
+      if (v === null) return '';
+      return metric.format === '%' ? v * 100 : v;
     }));
   });
 
@@ -489,45 +464,20 @@ function shortDate(date) {
   return ('0' + date.getDate()).slice(-2) + ' ' + MONTH_NAMES[date.getMonth()].toLowerCase();
 }
 
-// Valor a usar en el filtro de la Data API según el tipo de fecha.
-function dateFilterValue(metric, key) {
-  if (metric.dateType === 'julian') return dateToJulian(parseKey(key));
-  return "'" + key + "'";
-}
-
-// Fecha de una fila -> llave 'YYYY-MM-DD'.
-function rowDateKey(metric, value) {
-  if (value === null || value === undefined || value === '') return null;
-  if (metric.dateType === 'julian') {
-    var date = julianToDate(value);
-    return date ? toKey(date) : null;
-  }
-  return String(value).substring(0, 10);
-}
-
-// Date -> entero juliano JDE CYYDDD (ej. 21/10/2026 -> 126294).
-function dateToJulian(date) {
-  var startOfYear = new Date(date.getFullYear(), 0, 1);
-  var dayOfYear = Math.round((date - startOfYear) / 86400000) + 1;
-  var century = Math.floor(date.getFullYear() / 100) - 19;
-  return (century * 100000) + ((date.getFullYear() % 100) * 1000) + dayOfYear;
-}
-
-// Juliano JDE CYYDDD -> Date (o null si no es válido).
-function julianToDate(value) {
-  var num = Number(value);
-  if (isNaN(num) || num <= 0) return null;
-
-  var digits = ('000000' + String(Math.trunc(num))).slice(-6);
-  var century = parseInt(digits.substring(0, 1), 10);
-  var yy = parseInt(digits.substring(1, 3), 10);
-  var dayOfYear = parseInt(digits.substring(3, 6), 10);
-  if (dayOfYear < 1 || dayOfYear > 366) return null;
-
-  return new Date(1900 + (century * 100) + yy, 0, dayOfYear);
-}
-
 // ---------- Utilidades ----------
+
+function distinctValues(rows, field) {
+  var seen = {};
+  var values = [];
+  rows.forEach(function (row) {
+    var v = row[field];
+    if (v === null || v === undefined || v === '' || seen[v]) return;
+    seen[v] = true;
+    values.push(v);
+  });
+  values.sort();
+  return values;
+}
 
 function describeError(err) {
   if (!err) return '';
