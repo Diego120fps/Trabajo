@@ -101,43 +101,56 @@ Capacidad es una foto del día (no un flujo): en el tablero, el día muestra
 la ocupación de ese día y la semana / mes / año muestran la **ocupación
 promedio** del periodo (localidades ocupadas-día / localidades totales-día).
 
-## Rama 3: Days of Supply + Inventario $ (borrador, faltan datos)
+## Rama 3: Days of Supply + Inventario $ (tile SQL dentro del Magic ETL)
 
-Fórmula por planta y día:
+Por planta y por cada día con foto de inventario:
 
-    Days of Supply = Inventario $ del día / Consumo diario promedio $
-    Consumo diario promedio $ = Consumo $ de los últimos N días / N
+    Days of Supply = Inventario $ del día / (Consumo $ de los 90 días que
+                     terminan ese día / 90)
 
-Se usa $ (no piezas) porque a nivel planta no se pueden sumar piezas de
-items con distinta unidad de medida.
+Inputs del tile SQL (renombra a como se llamen tus inputs/columnas):
+- `Inventario`: foto diaria → `Planta`, `Fecha`, `ValorInventario`
+- `Consumos`: ya filtrado a tipos de consumo → `Planta`, `Fecha`, `ValorConsumo`
 
-**Datos necesarios**
-1. Inventario diario por item y planta (foto de cada día): cantidad en mano
-   y costo unitario (o el valor ya calculado). ¿Lo trae `InventoryHistoryGDL`?
-2. Consumo: movimientos de salida del Item Ledger (F4111, el dataset del
-   pivote: `ilmcu`, `iltrdj`, `ildct`, `ilpaid`). Falta definir qué tipos de
-   documento (`ildct`) cuentan como consumo.
-3. N = ventana del promedio (ej. 30 o 90 días naturales).
-4. Calendario (ej. dataset "Domo Dimensions - calendar") para tener un
-   renglón por día aunque no haya consumo, antes de la ventana móvil.
+**El input de consumos debe empezar 90 días antes del 1 de enero** (desde
+~3 de octubre del año anterior); si solo trae el año actual, los DOS de
+enero a marzo salen inflados.
 
-**Pasos (Magic ETL)**
-1. Inventario: Group By `Planta`, `Fecha` → `Inventario` = SUM(cantidad × costo).
-2. Consumo: Filter `ildct` in (tipos de consumo); `Planta` desde `ilmcu`
-   (en blanco = 1221); `Fecha` desde `iltrdj` juliano; `Consumo` = ABS(`ilpaid`) / 100;
-   Group By `Planta`, `Fecha`.
-3. Cross join Planta × calendario, Left Join del consumo, nulos → 0.
-4. Rank & Window: SUM(`Consumo`) de los N renglones anteriores (incluye el
-   día) por `Planta` ordenado por `Fecha` → `ConsumoN`.
-5. Join (inner) con inventario por `Planta`, `Fecha`.
-6. Dos salidas que entran al Append:
-   - `Metrico` = `Days of Supply`, `Formato` = `d`, `Valor` = `Inventario`,
-     `Base` = `ConsumoN` / N
-   - `Metrico` = `Inventario`, `Formato` = `$`, `Valor` = `Inventario`, `Base` = 1
+```sql
+SELECT inv.Planta, 'Days of Supply' AS Metrico, inv.Fecha,
+       MAX(inv.ValorInventario) AS Valor,
+       SUM(COALESCE(c.ValorConsumo, 0)) / 90 AS Base,
+       'd' AS Formato
+FROM (
+    SELECT `Planta`, `Fecha`, SUM(`ValorInventario`) AS ValorInventario
+    FROM `Inventario`
+    GROUP BY `Planta`, `Fecha`
+) inv
+LEFT JOIN (
+    SELECT `Planta`, `Fecha`, SUM(ABS(`ValorConsumo`)) AS ValorConsumo
+    FROM `Consumos`
+    GROUP BY `Planta`, `Fecha`
+) c
+    ON c.Planta = inv.Planta
+   AND DATEDIFF(inv.Fecha, c.Fecha) BETWEEN 0 AND 89
+GROUP BY inv.Planta, inv.Fecha
 
-En el tablero: el día muestra los días de ese día; semana / mes / año
-muestran inventario promedio / consumo diario promedio del periodo.
-Inventario $ muestra el promedio diario del periodo (no la suma).
+UNION ALL
+
+SELECT `Planta`, 'Inventario' AS Metrico, `Fecha`,
+       SUM(`ValorInventario`) AS Valor,
+       1 AS Base,
+       '$' AS Formato
+FROM `Inventario`
+GROUP BY `Planta`, `Fecha`
+```
+
+- `DATEDIFF(...) BETWEEN 0 AND 89` = el día de la foto y los 89 anteriores
+  (90 días naturales), sin depender de un calendario.
+- Ambos métricos están en `LAST_DAY_METRICS` del brick: cada columna toma
+  solo el **último día con foto** del periodo (fin de mes, domingo de la
+  semana, el día mismo). El año muestra el valor **al corte** (ayer).
+- Base = 0 (sin consumo en 90 días) → el brick muestra "–" en vez de infinito.
 
 ## Siguientes métricos
 

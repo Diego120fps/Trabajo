@@ -26,6 +26,12 @@ var METRIC_ORDER = ['Accuracy', 'Capacidad', 'Days of Supply', 'Inventario'];
 // Formato solo decide cómo se muestra: '%' (x100), '$', '#' o 'd' (días).
 var FORMAT_DECIMALS = { '%': 1, '$': 2, '#': 0, 'd': 1 };
 
+// Métricos "foto al cierre": cada periodo toma SOLO el último día con datos
+// dentro de su rango (fin de mes, fin de semana, el día mismo; el año queda
+// como el valor al corte). Ese día se suman todas las plantas y se aplica
+// la misma regla Valor / Base.
+var LAST_DAY_METRICS = ['Days of Supply', 'Inventario'];
+
 // false = solo días CERRADOS (el YTD y los días de la semana llegan hasta
 // ayer). true = incluye el día de hoy (parcial).
 var INCLUDE_TODAY = false;
@@ -259,16 +265,26 @@ function aggregateMetrics(rows, periods) {
       byMetric[name] = {
         name: name,
         format: row[FIELD_FORMATO] || '#',
-        totals: periods.map(function () { return { valor: 0, base: 0 }; })
+        totals: periods.map(function () { return { valor: 0, base: 0, lastKey: '' }; })
       };
     }
 
     var valor = Number(row[FIELD_VALOR]) || 0;
     var base = Number(row[FIELD_BASE]) || 0;
+    var lastDayOnly = LAST_DAY_METRICS.indexOf(name) !== -1;
     periods.forEach(function (p, i) {
       if (key < p.start || key > p.end) return;
-      byMetric[name].totals[i].valor += valor;
-      byMetric[name].totals[i].base += base;
+      var t = byMetric[name].totals[i];
+      if (lastDayOnly) {
+        if (key < t.lastKey) return;
+        if (key > t.lastKey) {
+          t.lastKey = key;
+          t.valor = 0;
+          t.base = 0;
+        }
+      }
+      t.valor += valor;
+      t.base += base;
     });
   });
 
