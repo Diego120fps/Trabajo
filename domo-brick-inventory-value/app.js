@@ -9,7 +9,8 @@ var datasetId = datasets[0];
 // Nombres de campo del dataset (ajusta aquí si tu dataset usa otros alias)
 var FIELD_FECHA = 'fecha';            // Fecha de la foto del inventario
 var FIELD_PLANTA = 'planta';          // Branch/Plant
-var FIELD_VALOR = 'valor_inventario'; // Valor del inventario ($)
+var FIELD_VALOR = 'ILOC_COST_ON_HAND'; // Valor del inventario en MXN
+var FIELD_TIPO_CAMBIO = 'Valor';        // Tipo de cambio MXN/USD de ese día
 var FIELD_ITEM = 'item';              // Item (para el Top 100)
 var FIELD_ITEM_DESC = 'descripcion';  // Descripción del item ('' si la dataset no la trae)
 
@@ -19,6 +20,10 @@ var DATE_FORMAT = 'iso';
 
 // Si el valor viene en centavos (como ilpaid) pon 100.
 var VALUE_DIVISOR = 1;
+
+// Filas sin tipo de cambio válido (vacío o 0) en la última carga: no se
+// pueden convertir a USD y se dejan fuera (se avisa en pantalla).
+var missingRateRows = 0;
 
 // Si no hay foto exactamente en la fecha de cierre (fin de semana, carga
 // faltante), se usa la foto más reciente ANTERIOR a esa fecha, buscando
@@ -200,11 +205,13 @@ function refresh() {
   setStatus('');
   showLoading(true);
   clearTopTable();
+  missingRateRows = 0;
   var seq = ++requestSeq;
 
   fetchDailyTotals(minDate, lastClosed, function (rows) {
     if (seq !== requestSeq) return;
     var series = buildSeries(rows);
+    warnMissingRate();
     var plant = getSelectedPlant();
     var rowKeys = plant === ALL_LABEL
       ? BRANCH_GROUPS.map(function (g) { return g.label; }).concat([TOTAL_KEY])
@@ -224,7 +231,7 @@ function refresh() {
     });
 
     renderTable(sections, lastRows);
-    footNote.textContent = 'Valor del inventario al cierre de cada periodo. Datos hasta el ' +
+    footNote.textContent = 'Valor del inventario en USD (' + FIELD_VALOR + ' / tipo de cambio del día) al cierre de cada periodo. Datos hasta el ' +
       formatLong(lastClosed) + ' (solo días cerrados). Semanas de lunes a domingo. ' +
       '▲/▼ respecto al periodo anterior (mes vs mes, semana vs semana, día vs día). ' +
       '* = no hubo foto ese día, se usa la más reciente anterior.';
@@ -252,7 +259,11 @@ function fetchDailyTotals(fromDate, toDate, onDone, onError) {
 
 // Suma FIELD_VALOR agrupando por groupFields, leyendo en páginas de
 // PAGE_SIZE hasta que una página regresa menos filas de las pedidas.
+// Siempre se agrupa también por el tipo de cambio: es el mismo para todo
+// el día, así que no parte los grupos, y permite convertir cada suma en
+// MXN a USD con el tipo de cambio de su propio día (ver rowValueUsd).
 function fetchGrouped(groupFields, filter, onDone, onError) {
+  groupFields = groupFields.concat([FIELD_TIPO_CAMBIO]);
   var collected = [];
   var offset = 0;
   var page = 0;
@@ -301,7 +312,7 @@ function buildSeries(rows) {
     var key = rowDateKey(row[FIELD_FECHA]);
     if (!key) return;
 
-    var value = (Number(row[FIELD_VALOR]) || 0) / VALUE_DIVISOR;
+    var value = rowValueUsd(row);
     var group = GROUP_BY_CODE[normalizeBranch(row[FIELD_PLANTA])];
 
     if (!byDate[key]) byDate[key] = {};
@@ -386,6 +397,7 @@ function loadTopItems(series, lastClosed, plant, seq) {
     if (index >= dateKeys.length) {
       topLoading.style.display = 'none';
       finishTop(byDate, current.dateKey, compares, plant);
+      warnMissingRate();
       return;
     }
     var key = dateKeys[index];
@@ -415,7 +427,7 @@ function sumByItem(rows, plant) {
     if (!map[item]) {
       map[item] = { value: 0, desc: FIELD_ITEM_DESC ? (row[FIELD_ITEM_DESC] || '') : '' };
     }
-    map[item].value += (Number(row[FIELD_VALOR]) || 0) / VALUE_DIVISOR;
+    map[item].value += rowValueUsd(row);
   });
   return map;
 }
@@ -463,7 +475,7 @@ function renderTopTable(compares, rows) {
   tbody.innerHTML = '';
 
   var headerRow = document.createElement('tr');
-  var currentLabel = rows.length ? 'Valor al ' + formatShort(parseKey(rows[0].dateKey)) : 'Valor';
+  var currentLabel = rows.length ? 'Valor USD al ' + formatShort(parseKey(rows[0].dateKey)) : 'Valor';
   ['#', 'Item', 'Descripción', currentLabel].forEach(function (text, i) {
     var th = document.createElement('th');
     th.textContent = text;
@@ -658,7 +670,7 @@ function exportToExcel() {
   lastSections.forEach(function (section) {
     section.periods.forEach(function (p) {
       var name = section.title + ' - ' + p.label + ' (' + p.sub + ')';
-      headers.push(name, name + ' - Variación $', name + ' - Variación %');
+      headers.push(name + ' (USD)', name + ' - Variación USD', name + ' - Variación %');
     });
   });
 
@@ -685,9 +697,9 @@ function exportTopToExcel() {
     return;
   }
 
-  var headers = ['#', 'Item', 'Descripción', 'Valor'];
+  var headers = ['#', 'Item', 'Descripción', 'Valor USD'];
   lastTopCompares.forEach(function (c) {
-    headers.push(c.label + ' - Variación $', c.label + ' - Variación %');
+    headers.push(c.label + ' - Variación USD', c.label + ' - Variación %');
   });
 
   var rows = lastTopRows.map(function (row) {
@@ -803,6 +815,18 @@ function julianToDate(value) {
 
 // ---------- Utilidades ----------
 
+// Valor de la fila en USD: ILOC_COST_ON_HAND (MXN) / tipo de cambio del
+// día. Sin tipo de cambio válido regresa 0 y se cuenta en missingRateRows.
+function rowValueUsd(row) {
+  var mxn = (Number(row[FIELD_VALOR]) || 0) / VALUE_DIVISOR;
+  var rate = Number(row[FIELD_TIPO_CAMBIO]);
+  if (!rate || isNaN(rate)) {
+    if (mxn !== 0) missingRateRows += 1;
+    return 0;
+  }
+  return mxn / rate;
+}
+
 // Blanco/vacío -> DEFAULT_BRANCH; si no, el valor tal cual (sin espacios).
 function normalizeBranch(value) {
   var trimmed = (value === null || value === undefined) ? '' : String(value).trim();
@@ -811,7 +835,7 @@ function normalizeBranch(value) {
 
 function formatMoney(value) {
   var sign = value < 0 ? '-' : '';
-  return sign + '$' + Math.abs(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return sign + 'US$' + Math.abs(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatPct(value) {
@@ -844,6 +868,13 @@ function logError(context, err) {
     err.text().then(function (body) {
       console.error(context + ' - respuesta del servidor:', body);
     }).catch(function () {});
+  }
+}
+
+function warnMissingRate() {
+  if (missingRateRows > 0) {
+    setStatus('Atención: ' + missingRateRows.toLocaleString('es-MX') + ' registros sin tipo de cambio (' +
+      FIELD_TIPO_CAMBIO + ' vacío o 0) no se incluyeron en los valores en USD.');
   }
 }
 
