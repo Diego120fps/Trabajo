@@ -8,18 +8,23 @@ var FIELD_PLANTA = 'Planta';
 var FIELD_METRICO = 'Metrico';
 var FIELD_FECHA = 'Fecha';     // tipo Date ('YYYY-MM-DD')
 var FIELD_VALOR = 'Valor';     // numerador (o el valor tal cual)
-var FIELD_BASE = 'Base';       // denominador (solo para '%')
+var FIELD_BASE = 'Base';       // denominador (vacío = solo se suma Valor)
 var FIELD_FORMATO = 'Formato'; // '%', '$' o '#'
 
 var datasetId = datasets[0];
 
 // Orden de las filas. Los métricos que no estén aquí se agregan al final
 // en orden alfabético.
-var METRIC_ORDER = ['Accuracy', 'Capacidad'];
+var METRIC_ORDER = ['Accuracy', 'Capacidad', 'Days of Supply', 'Inventario'];
 
-// Decimales por formato. '%' se calcula como SUM(Valor) / SUM(Base) del
-// periodo (nunca promediando porcentajes diarios); '$' y '#' como SUM(Valor).
-var FORMAT_DECIMALS = { '%': 1, '$': 2, '#': 0 };
+// Cálculo por periodo:
+//   - Si la rama del ETL llena Base -> SUM(Valor) / SUM(Base) del periodo
+//     (porcentajes, días de inventario, o promedios de una foto diaria
+//     usando Base = 1 por día). Nunca se promedian valores diarios ya
+//     divididos.
+//   - Si Base viene vacía/0 -> SUM(Valor) (flujos: costo, piezas, ...).
+// Formato solo decide cómo se muestra: '%' (x100), '$', '#' o 'd' (días).
+var FORMAT_DECIMALS = { '%': 1, '$': 2, '#': 0, 'd': 1 };
 
 // false = solo días CERRADOS (el YTD y los días de la semana llegan hasta
 // ayer). true = incluye el día de hoy (parcial).
@@ -241,7 +246,7 @@ function render() {
 
 // Regresa [{ name, format, values: [valor por periodo] }] en el orden de
 // METRIC_ORDER. Valor y Base se suman por periodo y al final se divide
-// (para '%'), así el porcentaje del mes pondera bien cada conteo.
+// (si hay Base), así el % o los días del mes ponderan bien cada día.
 function aggregateMetrics(rows, periods) {
   var byMetric = {};
 
@@ -270,7 +275,9 @@ function aggregateMetrics(rows, periods) {
   var metrics = Object.keys(byMetric).map(function (name) {
     var metric = byMetric[name];
     metric.values = metric.totals.map(function (t) {
-      if (metric.format === '%') return t.base > 0 ? t.valor / t.base : null;
+      if (t.base > 0) return t.valor / t.base;
+      // Un cociente sin denominador en el periodo no tiene valor.
+      if (metric.format === '%' || metric.format === 'd') return null;
       return t.valor;
     });
     return metric;

@@ -11,8 +11,8 @@ los une con **Append Rows**. El brick lee únicamente la salida de este ETL.
 | `Metrico` | Texto   | Nombre de la fila en el tablero, ej. `Accuracy` |
 | `Fecha`   | Fecha   | Día (sin hora) |
 | `Valor`   | Decimal | Numerador, o el valor tal cual para `$` y `#` |
-| `Base`    | Decimal | Denominador (solo para `%`; en los demás, 0 o nulo) |
-| `Formato` | Texto   | `%`, `$` o `#` |
+| `Base`    | Decimal | Denominador. Vacío/0 = el brick solo suma `Valor` |
+| `Formato` | Texto   | `%`, `$`, `#` o `d` (días); solo cambia cómo se muestra |
 
 Una fila por **Planta + Metrico + Fecha** (agrupado por día).
 
@@ -21,8 +21,9 @@ promediar entre días: el brick suma `Valor` y `Base` de todos los días del
 periodo (año, mes, semana o día) y divide al final. Así el % del mes queda
 ponderado por la cantidad real de conteos.
 
-- `%` → `SUM(Valor) / SUM(Base)`
-- `$` y `#` → `SUM(Valor)`
+- Con `Base` → `SUM(Valor) / SUM(Base)` (%, días de inventario, o el
+  promedio de una foto diaria usando `Base = 1`)
+- Sin `Base` → `SUM(Valor)` (flujos: costo, piezas, documentos)
 
 ## Rama 1: Accuracy
 
@@ -99,6 +100,44 @@ GROUP BY inv.Planta, inv.Fecha
 Capacidad es una foto del día (no un flujo): en el tablero, el día muestra
 la ocupación de ese día y la semana / mes / año muestran la **ocupación
 promedio** del periodo (localidades ocupadas-día / localidades totales-día).
+
+## Rama 3: Days of Supply + Inventario $ (borrador, faltan datos)
+
+Fórmula por planta y día:
+
+    Days of Supply = Inventario $ del día / Consumo diario promedio $
+    Consumo diario promedio $ = Consumo $ de los últimos N días / N
+
+Se usa $ (no piezas) porque a nivel planta no se pueden sumar piezas de
+items con distinta unidad de medida.
+
+**Datos necesarios**
+1. Inventario diario por item y planta (foto de cada día): cantidad en mano
+   y costo unitario (o el valor ya calculado). ¿Lo trae `InventoryHistoryGDL`?
+2. Consumo: movimientos de salida del Item Ledger (F4111, el dataset del
+   pivote: `ilmcu`, `iltrdj`, `ildct`, `ilpaid`). Falta definir qué tipos de
+   documento (`ildct`) cuentan como consumo.
+3. N = ventana del promedio (ej. 30 o 90 días naturales).
+4. Calendario (ej. dataset "Domo Dimensions - calendar") para tener un
+   renglón por día aunque no haya consumo, antes de la ventana móvil.
+
+**Pasos (Magic ETL)**
+1. Inventario: Group By `Planta`, `Fecha` → `Inventario` = SUM(cantidad × costo).
+2. Consumo: Filter `ildct` in (tipos de consumo); `Planta` desde `ilmcu`
+   (en blanco = 1221); `Fecha` desde `iltrdj` juliano; `Consumo` = ABS(`ilpaid`) / 100;
+   Group By `Planta`, `Fecha`.
+3. Cross join Planta × calendario, Left Join del consumo, nulos → 0.
+4. Rank & Window: SUM(`Consumo`) de los N renglones anteriores (incluye el
+   día) por `Planta` ordenado por `Fecha` → `ConsumoN`.
+5. Join (inner) con inventario por `Planta`, `Fecha`.
+6. Dos salidas que entran al Append:
+   - `Metrico` = `Days of Supply`, `Formato` = `d`, `Valor` = `Inventario`,
+     `Base` = `ConsumoN` / N
+   - `Metrico` = `Inventario`, `Formato` = `$`, `Valor` = `Inventario`, `Base` = 1
+
+En el tablero: el día muestra los días de ese día; semana / mes / año
+muestran inventario promedio / consumo diario promedio del periodo.
+Inventario $ muestra el promedio diario del periodo (no la suma).
 
 ## Siguientes métricos
 
