@@ -714,8 +714,8 @@ function exportToExcel() {
     lastSections.forEach(function (section, s) {
       row.cells[s].forEach(function (cell) {
         line.push(
-          cell.cur ? round2(cell.cur.value) : '',
-          cell.diff !== null ? round2(cell.diff) : '',
+          cell.cur ? Math.round(cell.cur.value) : '',
+          cell.diff !== null ? Math.round(cell.diff) : '',
           cell.pct !== null ? round2(cell.pct * 100) : ''
         );
       });
@@ -739,10 +739,10 @@ function exportTopToExcel() {
 
   var totalRow = Object.assign({ rank: '', plant: '', item: 'Total Top ' + lastTopRows.length, desc: '' }, lastTopTotal);
   var rows = [totalRow].concat(lastTopRows).map(function (row) {
-    var line = [row.rank, row.plant, row.item, row.desc, round2(row.value)];
+    var line = [row.rank, row.plant, row.item, row.desc, Math.round(row.value)];
     row.cells.forEach(function (cell) {
       line.push(
-        cell.diff !== null ? round2(cell.diff) : '',
+        cell.diff !== null ? Math.round(cell.diff) : '',
         cell.pct !== null ? round2(cell.pct * 100) : ''
       );
     });
@@ -869,9 +869,11 @@ function normalizeBranch(value) {
   return trimmed === '' ? DEFAULT_BRANCH : trimmed;
 }
 
+// Sin decimales; se redondea antes de poner el signo para no mostrar "-$0".
 function formatMoney(value) {
-  var sign = value < 0 ? '-' : '';
-  return sign + '$' + Math.abs(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  var rounded = Math.round(value);
+  var sign = rounded < 0 ? '-' : '';
+  return sign + '$' + Math.abs(rounded).toLocaleString('es-MX', { maximumFractionDigits: 0 });
 }
 
 function formatPct(value) {
