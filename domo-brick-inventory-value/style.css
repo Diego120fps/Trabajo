@@ -315,3 +315,10 @@ td.empty-cell {
 .top-wrapper {
   max-height: 420px;
 }
+
+.inv-table tr.top-total td {
+  position: sticky;
+  top: 41px;
+  background: #f0f6fc;
+  z-index: 1;
+}

@@ -35,7 +35,10 @@ var LOOKBACK_DAYS = 7;
 var DEFAULT_BRANCH = '1221';
 
 // Cada radio agrupa uno o varios códigos crudos de Branch/Plant bajo un
-// nombre de planta. "Todas" suma todo lo que venga en la dataset.
+// nombre de planta. "Todas" suma todo lo que venga en la dataset. Un valor
+// de planta que no coincida con ningún código ni nombre de grupo aparece
+// como su propia planta (ver plantGroupOf), y los radios se arman con las
+// plantas que realmente traen datos.
 var BRANCH_GROUPS = [
   { label: 'Plataforma', codes: ['1221', '2300'] },
   { label: 'Laredo', codes: ['5130', '5140'] },
@@ -48,8 +51,10 @@ var TOTAL_KEY = '__total__';
 var TOP_N = 100;
 
 var GROUP_BY_CODE = {};
+var GROUP_BY_NAME = {};
 BRANCH_GROUPS.forEach(function (group) {
   group.codes.forEach(function (code) { GROUP_BY_CODE[code] = group.label; });
+  GROUP_BY_NAME[nameKey(group.label)] = group.label;
 });
 
 var PAGE_SIZE = 50000;
@@ -75,6 +80,7 @@ var lastSections = [];
 var lastRows = [];
 var lastTopCompares = [];
 var lastTopRows = [];
+var lastTopTotal = null;
 
 // Cada refresh incrementa este contador; respuestas de cargas anteriores
 // (ej. el usuario cambió de planta a media carga) se descartan.
@@ -88,15 +94,19 @@ function init() {
   btnExportTop.addEventListener('click', exportTopToExcel);
   plantRadios.addEventListener('change', refresh);
 
-  renderPlantRadios();
+  renderPlantRadios(BRANCH_GROUPS.map(function (g) { return g.label; }));
   corteInput.value = toKey(new Date());
   refresh();
 }
 
-function renderPlantRadios() {
+// Se vuelve a pintar con las plantas que trae la dataset, conservando la
+// selección si esa planta sigue existiendo.
+function renderPlantRadios(plants) {
+  var selected = getSelectedPlant();
+  if (plants.indexOf(selected) === -1) selected = ALL_LABEL;
   plantRadios.innerHTML = '';
 
-  [ALL_LABEL].concat(BRANCH_GROUPS.map(function (g) { return g.label; })).forEach(function (labelText) {
+  [ALL_LABEL].concat(plants).forEach(function (labelText) {
     var label = document.createElement('label');
 
     var radio = document.createElement('input');
@@ -104,7 +114,7 @@ function renderPlantRadios() {
     radio.name = 'plantRadio';
     radio.value = labelText;
     radio.className = 'plant-radio';
-    radio.checked = labelText === ALL_LABEL;
+    radio.checked = labelText === selected;
 
     label.appendChild(radio);
     label.appendChild(document.createTextNode(labelText));
@@ -212,10 +222,9 @@ function refresh() {
     if (seq !== requestSeq) return;
     var series = buildSeries(rows);
     warnMissingRate();
+    renderPlantRadios(series.groups);
     var plant = getSelectedPlant();
-    var rowKeys = plant === ALL_LABEL
-      ? BRANCH_GROUPS.map(function (g) { return g.label; }).concat([TOTAL_KEY])
-      : [plant];
+    var rowKeys = plant === ALL_LABEL ? series.groups.concat([TOTAL_KEY]) : [plant];
 
     lastSections = sections;
     lastRows = rowKeys.map(function (key) {
@@ -307,22 +316,48 @@ function fetchGrouped(groupFields, filter, onDone, onError) {
 // fechas con datos para poder buscar la foto más reciente <= una fecha.
 function buildSeries(rows) {
   var byDate = {};
+  var groupSeen = {};
+  var rawSeen = {};
 
   rows.forEach(function (row) {
     var key = rowDateKey(row[FIELD_FECHA]);
     if (!key) return;
 
     var value = rowValueUsd(row);
-    var group = GROUP_BY_CODE[normalizeBranch(row[FIELD_PLANTA])];
+    var group = plantGroupOf(row[FIELD_PLANTA]);
+    groupSeen[group] = true;
+    rawSeen[row[FIELD_PLANTA]] = group;
 
     if (!byDate[key]) byDate[key] = {};
     byDate[key][TOTAL_KEY] = (byDate[key][TOTAL_KEY] || 0) + value;
-    if (group) {
-      byDate[key][group] = (byDate[key][group] || 0) + value;
-    }
+    byDate[key][group] = (byDate[key][group] || 0) + value;
   });
 
-  return { byDate: byDate, dates: Object.keys(byDate).sort() };
+  console.log('Valores de ' + FIELD_PLANTA + ' -> planta:', rawSeen);
+
+  return { byDate: byDate, dates: Object.keys(byDate).sort(), groups: orderGroups(Object.keys(groupSeen)) };
+}
+
+// Grupos configurados primero (en el orden de BRANCH_GROUPS), luego las
+// plantas no configuradas en orden alfabético.
+function orderGroups(groups) {
+  var configured = BRANCH_GROUPS.map(function (g) { return g.label; });
+  return configured.filter(function (label) { return groups.indexOf(label) !== -1; })
+    .concat(groups.filter(function (g) { return configured.indexOf(g) === -1; }).sort());
+}
+
+// Valor crudo de planta -> nombre de planta. Acepta el código (con o sin
+// ceros a la izquierda, ej. '2200' o '000002200') o el nombre del grupo
+// (sin importar mayúsculas/espacios, ej. 'CALLE 2' -> 'Calle2'); si no
+// coincide con nada se usa el valor tal cual.
+function plantGroupOf(value) {
+  var code = normalizeBranch(value);
+  var noZeros = code.replace(/^0+(?=.)/, '');
+  return GROUP_BY_CODE[code] || GROUP_BY_CODE[noZeros] || GROUP_BY_NAME[nameKey(code)] || code;
+}
+
+function nameKey(value) {
+  return String(value).toUpperCase().replace(/[^A-Z0-9]/g, '');
 }
 
 // Foto más reciente con fecha <= target (máximo LOOKBACK_DAYS atrás).
@@ -417,17 +452,20 @@ function loadTopItems(series, lastClosed, plant, seq) {
   next();
 }
 
-// Suma por item las filas de la planta seleccionada.
+// Suma por item + planta las filas de la planta seleccionada (con "Todas",
+// un mismo item en dos plantas sale en dos renglones).
 function sumByItem(rows, plant) {
   var map = {};
   (rows || []).forEach(function (row) {
-    if (plant !== ALL_LABEL && GROUP_BY_CODE[normalizeBranch(row[FIELD_PLANTA])] !== plant) return;
+    var group = plantGroupOf(row[FIELD_PLANTA]);
+    if (plant !== ALL_LABEL && group !== plant) return;
     var item = row[FIELD_ITEM];
     if (item === null || item === undefined || item === '') return;
-    if (!map[item]) {
-      map[item] = { value: 0, desc: FIELD_ITEM_DESC ? (row[FIELD_ITEM_DESC] || '') : '' };
+    var key = item + '||' + group;
+    if (!map[key]) {
+      map[key] = { item: item, plant: group, value: 0, desc: FIELD_ITEM_DESC ? (row[FIELD_ITEM_DESC] || '') : '' };
     }
-    map[item].value += rowValueUsd(row);
+    map[key].value += rowValueUsd(row);
   });
   return map;
 }
@@ -443,18 +481,19 @@ function finishTop(byDate, currentKey, compares, plant) {
   }).slice(0, TOP_N);
 
   lastTopCompares = compares;
-  lastTopRows = items.map(function (item, i) {
-    var curValue = current[item].value;
+  lastTopRows = items.map(function (key, i) {
+    var curValue = current[key].value;
     return {
       rank: i + 1,
-      item: item,
-      desc: current[item].desc,
+      item: current[key].item,
+      plant: current[key].plant,
+      desc: current[key].desc,
       value: curValue,
       dateKey: currentKey,
       cells: compares.map(function (c, k) {
         if (!prevMaps[k]) return { prev: null, diff: null, pct: null };
         // Si el item no existía en esa fecha, su valor anterior es 0.
-        var prevValue = prevMaps[k][item] ? prevMaps[k][item].value : 0;
+        var prevValue = prevMaps[k][key] ? prevMaps[k][key].value : 0;
         var diff = curValue - prevValue;
         return {
           prev: { value: prevValue, dateKey: c.dateKey },
@@ -465,7 +504,32 @@ function finishTop(byDate, currentKey, compares, plant) {
     };
   });
 
+  lastTopTotal = buildTopTotal(lastTopRows, compares);
   renderTopTable(compares, lastTopRows);
+}
+
+// Suma de los items del Top (valor actual y valor de cada comparación).
+function buildTopTotal(rows, compares) {
+  var value = 0;
+  var prevValues = compares.map(function () { return 0; });
+  rows.forEach(function (row) {
+    value += row.value;
+    row.cells.forEach(function (cell, k) {
+      if (cell.prev) prevValues[k] += cell.prev.value;
+    });
+  });
+  return {
+    value: value,
+    cells: compares.map(function (c, k) {
+      if (!c.dateKey) return { prev: null, diff: null, pct: null };
+      var diff = value - prevValues[k];
+      return {
+        prev: { value: prevValues[k], dateKey: c.dateKey },
+        diff: diff,
+        pct: prevValues[k] !== 0 ? diff / Math.abs(prevValues[k]) : null
+      };
+    })
+  };
 }
 
 function renderTopTable(compares, rows) {
@@ -476,10 +540,10 @@ function renderTopTable(compares, rows) {
 
   var headerRow = document.createElement('tr');
   var currentLabel = rows.length ? 'Valor USD al ' + formatShort(parseKey(rows[0].dateKey)) : 'Valor';
-  ['#', 'Item', 'Descripción', currentLabel].forEach(function (text, i) {
+  ['#', 'Planta', 'Item', 'Descripción', currentLabel].forEach(function (text, i) {
     var th = document.createElement('th');
     th.textContent = text;
-    if (i === 0 || i === 3) th.className = 'period-head';
+    if (i === 0 || i === 4) th.className = 'period-head';
     headerRow.appendChild(th);
   });
   compares.forEach(function (c) {
@@ -494,7 +558,7 @@ function renderTopTable(compares, rows) {
   if (rows.length === 0) {
     var emptyRow = document.createElement('tr');
     var td = document.createElement('td');
-    td.colSpan = 4 + compares.length;
+    td.colSpan = 5 + compares.length;
     td.className = 'empty-cell';
     td.textContent = 'Sin datos para la selección actual.';
     emptyRow.appendChild(td);
@@ -502,13 +566,16 @@ function renderTopTable(compares, rows) {
     return;
   }
 
-  rows.forEach(function (row) {
+  // Total arriba, fijo debajo del encabezado al hacer scroll.
+  var totalRow = Object.assign({ rank: '', plant: '', item: 'Total Top ' + rows.length, desc: '' }, lastTopTotal);
+  [totalRow].concat(rows).forEach(function (row, r) {
     var tr = document.createElement('tr');
+    if (r === 0) tr.className = 'total-row top-total';
 
-    [row.rank, row.item, row.desc, formatMoney(row.value)].forEach(function (text, i) {
+    [row.rank, row.plant, row.item, row.desc, formatMoney(row.value)].forEach(function (text, i) {
       var tdEl = document.createElement('td');
       tdEl.textContent = text;
-      if (i === 0 || i === 3) tdEl.className = 'numeric';
+      if (i === 0 || i === 4) tdEl.className = 'numeric';
       tr.appendChild(tdEl);
     });
 
@@ -536,6 +603,7 @@ function clearTopTable() {
   topTable.querySelector('tbody').innerHTML = '';
   topLoading.style.display = 'none';
   lastTopRows = [];
+  lastTopTotal = null;
 }
 
 // ---------- Render ----------
@@ -697,13 +765,14 @@ function exportTopToExcel() {
     return;
   }
 
-  var headers = ['#', 'Item', 'Descripción', 'Valor USD'];
+  var headers = ['#', 'Planta', 'Item', 'Descripción', 'Valor USD'];
   lastTopCompares.forEach(function (c) {
     headers.push(c.label + ' - Variación USD', c.label + ' - Variación %');
   });
 
-  var rows = lastTopRows.map(function (row) {
-    var line = [row.rank, row.item, row.desc, round2(row.value)];
+  var totalRow = Object.assign({ rank: '', plant: '', item: 'Total Top ' + lastTopRows.length, desc: '' }, lastTopTotal);
+  var rows = [totalRow].concat(lastTopRows).map(function (row) {
+    var line = [row.rank, row.plant, row.item, row.desc, round2(row.value)];
     row.cells.forEach(function (cell) {
       line.push(
         cell.diff !== null ? round2(cell.diff) : '',
