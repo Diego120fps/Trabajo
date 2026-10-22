@@ -34,11 +34,11 @@ var LOOKBACK_DAYS = 7;
 // realidad pertenecen al branch 1221 por defecto.
 var DEFAULT_BRANCH = '1221';
 
-// Cada radio agrupa uno o varios códigos crudos de Branch/Plant bajo un
-// nombre de planta. "Todas" suma todo lo que venga en la dataset. Un valor
+// Cada grupo junta uno o varios códigos crudos de Branch/Plant bajo un
+// nombre de planta (una fila por planta en la tabla principal). Un valor
 // de planta que no coincida con ningún código ni nombre de grupo aparece
-// como su propia planta (ver plantGroupOf), y los radios se arman con las
-// plantas que realmente traen datos.
+// como su propia planta (ver plantGroupOf). El filtro de planta lo pone el
+// control del dashboard de Domo.
 var BRANCH_GROUPS = [
   { label: 'Plataforma', codes: ['1221', '2300'] },
   { label: 'Laredo', codes: ['5130', '5140'] },
@@ -46,7 +46,6 @@ var BRANCH_GROUPS = [
   { label: 'Calle2', codes: ['2190'] },
   { label: 'CDI', codes: ['1122'] }
 ];
-var ALL_LABEL = 'Todas';
 var TOTAL_KEY = '__total__';
 var TOP_N = 100;
 
@@ -63,7 +62,6 @@ var MAX_PAGES = 50;
 var MONTHS_SHORT = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 var DAYS_SHORT = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
-var plantRadios = document.getElementById('plantRadios');
 var corteInput = document.getElementById('corteInput');
 var btnActualizar = document.getElementById('btnActualizar');
 var btnExport = document.getElementById('btnExport');
@@ -92,40 +90,9 @@ function init() {
   btnActualizar.addEventListener('click', refresh);
   btnExport.addEventListener('click', exportToExcel);
   btnExportTop.addEventListener('click', exportTopToExcel);
-  plantRadios.addEventListener('change', refresh);
 
-  renderPlantRadios(BRANCH_GROUPS.map(function (g) { return g.label; }));
   corteInput.value = toKey(new Date());
   refresh();
-}
-
-// Se vuelve a pintar con las plantas que trae la dataset, conservando la
-// selección si esa planta sigue existiendo.
-function renderPlantRadios(plants) {
-  var selected = getSelectedPlant();
-  if (plants.indexOf(selected) === -1) selected = ALL_LABEL;
-  plantRadios.innerHTML = '';
-
-  [ALL_LABEL].concat(plants).forEach(function (labelText) {
-    var label = document.createElement('label');
-
-    var radio = document.createElement('input');
-    radio.type = 'radio';
-    radio.name = 'plantRadio';
-    radio.value = labelText;
-    radio.className = 'plant-radio';
-    radio.checked = labelText === selected;
-
-    label.appendChild(radio);
-    label.appendChild(document.createTextNode(labelText));
-
-    plantRadios.appendChild(label);
-  });
-}
-
-function getSelectedPlant() {
-  var checked = plantRadios.querySelector('.plant-radio:checked');
-  return checked ? checked.value : ALL_LABEL;
 }
 
 // ---------- Periodos: cierres de mes, semanas cerradas del mes y días de la semana ----------
@@ -222,9 +189,10 @@ function refresh() {
     if (seq !== requestSeq) return;
     var series = buildSeries(rows);
     warnMissingRate();
-    renderPlantRadios(series.groups);
-    var plant = getSelectedPlant();
-    var rowKeys = plant === ALL_LABEL ? series.groups.concat([TOTAL_KEY]) : [plant];
+    // El filtro de planta lo aplica el control del dashboard de Domo (ya
+    // viene filtrado en la respuesta): aquí se muestra una fila por cada
+    // planta que traiga la dataset, más el Total.
+    var rowKeys = series.groups.concat([TOTAL_KEY]);
 
     lastSections = sections;
     lastRows = rowKeys.map(function (key) {
@@ -246,7 +214,7 @@ function refresh() {
       '* = no hubo foto ese día, se usa la más reciente anterior.';
     showLoading(false);
 
-    loadTopItems(series, lastClosed, plant, seq);
+    loadTopItems(series, lastClosed, seq);
   }, function (err) {
     if (seq !== requestSeq) return;
     logError('Error cargando el valor del inventario', err);
@@ -400,7 +368,7 @@ function buildTopCompares(lastClosed) {
   ];
 }
 
-function loadTopItems(series, lastClosed, plant, seq) {
+function loadTopItems(series, lastClosed, seq) {
   var current = valueAt(series, TOTAL_KEY, lastClosed);
   if (!current) {
     renderTopTable([], []);
@@ -431,7 +399,7 @@ function loadTopItems(series, lastClosed, plant, seq) {
     if (seq !== requestSeq) return;
     if (index >= dateKeys.length) {
       topLoading.style.display = 'none';
-      finishTop(byDate, current.dateKey, compares, plant);
+      finishTop(byDate, current.dateKey, compares);
       warnMissingRate();
       return;
     }
@@ -452,13 +420,12 @@ function loadTopItems(series, lastClosed, plant, seq) {
   next();
 }
 
-// Suma por item + planta las filas de la planta seleccionada (con "Todas",
-// un mismo item en dos plantas sale en dos renglones).
-function sumByItem(rows, plant) {
+// Suma por item + planta (un mismo item en dos plantas sale en dos
+// renglones).
+function sumByItem(rows) {
   var map = {};
   (rows || []).forEach(function (row) {
     var group = plantGroupOf(row[FIELD_PLANTA]);
-    if (plant !== ALL_LABEL && group !== plant) return;
     var item = row[FIELD_ITEM];
     if (item === null || item === undefined || item === '') return;
     var key = item + '||' + group;
@@ -470,10 +437,10 @@ function sumByItem(rows, plant) {
   return map;
 }
 
-function finishTop(byDate, currentKey, compares, plant) {
-  var current = sumByItem(byDate[currentKey], plant);
+function finishTop(byDate, currentKey, compares) {
+  var current = sumByItem(byDate[currentKey]);
   var prevMaps = compares.map(function (c) {
-    return c.dateKey ? sumByItem(byDate[c.dateKey], plant) : null;
+    return c.dateKey ? sumByItem(byDate[c.dateKey]) : null;
   });
 
   var items = Object.keys(current).sort(function (a, b) {
