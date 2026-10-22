@@ -7,12 +7,12 @@ var datasets = window.datasets;
 var datasetId = datasets[0];
 
 // Nombres de campo del dataset (ajusta aquí si tu dataset usa otros alias)
-var FIELD_FECHA = 'fecha';            // Fecha de la foto del inventario
-var FIELD_PLANTA = 'planta';          // Branch/Plant
-var FIELD_VALOR = 'ILOC_COST_ON_HAND'; // Valor del inventario en MXN
-var FIELD_TIPO_CAMBIO = 'Valor';        // Tipo de cambio MXN/USD de ese día
-var FIELD_ITEM = 'item';              // Item (para el Top 100)
-var FIELD_ITEM_DESC = 'descripcion';  // Descripción del item ('' si la dataset no la trae)
+var FIELD_FECHA = 'FechaCorta';            // Fecha de la foto del inventario
+var FIELD_PLANTA = 'Planta';               // Branch/Plant
+var FIELD_VALOR = 'ILOC_COST_ON_HAND';     // Valor del inventario en MXN
+var FIELD_TIPO_CAMBIO = 'Valor';           // Tipo de cambio MXN/USD de ese día
+var FIELD_ITEM = 'ITEM_NUMBER_SECOND';     // Item (para el Top 100)
+var FIELD_ITEM_DESC = 'ITEM_DESC';         // Descripción del item ('' si la dataset no la trae)
 
 // Formato de FIELD_FECHA: 'iso' (AAAA-MM-DD, columna fecha de Domo) o
 // 'julian' (entero JDE CYYDDD, como iltrdj).
