@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Valor de Inventario</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="filters-row">
+      <div class="filter-group">
+        <label>Planta</label>
+        <div id="plantRadios" class="checkbox-list"></div>
+      </div>
+
+      <div class="filter-group">
+        <label for="corteInput">Fecha de corte</label>
+        <input type="date" id="corteInput" />
+      </div>
+
+      <div class="filter-actions">
+        <button id="btnActualizar">Actualizar</button>
+        <button id="btnExport" class="secondary">Exportar a Excel</button>
+      </div>
+    </div>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <div class="table-wrapper inv-wrapper">
+      <table id="invTable" class="inv-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+
+    <span id="footNote" class="hint"></span>
+
+    <div class="section-header">
+      <h3 id="topTitle">Top 100 items más caros</h3>
+      <button id="btnExportTop" class="secondary small">Exportar a Excel</button>
+    </div>
+    <div id="topLoading" class="loading" style="display:none;">Cargando items...</div>
+    <div class="table-wrapper top-wrapper">
+      <table id="topTable" class="inv-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <span class="hint">Valor del item al último día cerrado. ▲/▼ vs día anterior, vs cierre de la semana anterior y vs cierre del mes anterior.</span>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
