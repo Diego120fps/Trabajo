@@ -904,7 +904,7 @@ function normalizeBranch(value) {
 
 function formatMoney(value) {
   var sign = value < 0 ? '-' : '';
-  return sign + 'US$' + Math.abs(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return sign + '$' + Math.abs(value).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function formatPct(value) {
