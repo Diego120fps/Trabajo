@@ -350,10 +350,14 @@ function cargarTodo() {
     });
 }
 
-// Trae las Work Orders abiertas (WO_STATUS_CODE entre WO_ESTATUS_ABIERTO_MIN
-// y WO_ESTATUS_ABIERTO_MAX, inclusive -- es un rango, no valores discretos,
-// así que basta una sola consulta con >=/<=) y se queda solo con las que de
-// verdad tienen cantidad pendiente > 0.
+// Trae las Work Orders de los Branch/Plant de BRANCH_CODES (una consulta
+// por código, mismo patrón ya usado para el inventario: el operador
+// "in (...)" no es confiable), y se queda solo con las que están
+// "abiertas" (WO_STATUS_CODE entre WO_ESTATUS_ABIERTO_MIN/MAX) y con
+// cantidad pendiente > 0. El rango de estatus se filtra en JS (Number())
+// en vez de en la query: WO_STATUS_CODE puede venir como texto (ej. "040")
+// y el operador >=/<= del filtro de DOMO no se comportó confiable contra
+// eso -- Number() sí lo compara bien sin importar el formato exacto.
 function fetchWorkOrdersAbiertas() {
   if (!workOrdersDatasetId) {
     showStatus('Selecciona el dataset de Work Orders en el brick (esquina inferior izquierda, dataset 2).');
@@ -361,18 +365,25 @@ function fetchWorkOrdersAbiertas() {
   }
 
   var fields = [FIELD_WO_NUMBER, FIELD_WO_ITEM, FIELD_WO_LINEA, FIELD_WO_BRANCH_PLANT, FIELD_WO_CANTIDAD_PENDIENTE, FIELD_WO_ESTATUS];
-  var filter = FIELD_WO_ESTATUS + '>=' + WO_ESTATUS_ABIERTO_MIN + ',' + FIELD_WO_ESTATUS + '<=' + WO_ESTATUS_ABIERTO_MAX;
-  var query =
-    '/data/v1/' + workOrdersDatasetId +
-    '?fields=' + fields.join() +
-    '&filter=' + filter +
-    '&limit=' + WO_LIMIT;
-  console.log('Query Work Orders abiertas:', query);
 
-  return domo.get(query).then(function (rows) {
-    console.log('Respuesta Work Orders abiertas:', rows);
-    return (rows || []).filter(function (r) {
-      return (Number(r[FIELD_WO_CANTIDAD_PENDIENTE]) || 0) > 0;
+  var queries = BRANCH_CODES.map(function (branchCode) {
+    var filter = buildFieldFilter(FIELD_WO_BRANCH_PLANT, branchCode);
+    var query =
+      '/data/v1/' + workOrdersDatasetId +
+      '?fields=' + fields.join() +
+      '&filter=' + filter +
+      '&limit=' + WO_LIMIT;
+    console.log('Query Work Orders (Branch/Plant ' + branchCode + '):', query);
+    return domo.get(query);
+  });
+
+  return Promise.all(queries).then(function (results) {
+    console.log('Respuesta Work Orders (por Branch/Plant):', results);
+    var rows = [].concat.apply([], results.map(function (r) { return r || []; }));
+    return rows.filter(function (r) {
+      var estatus = Number(r[FIELD_WO_ESTATUS]);
+      var cantidad = Number(r[FIELD_WO_CANTIDAD_PENDIENTE]) || 0;
+      return estatus >= WO_ESTATUS_ABIERTO_MIN && estatus <= WO_ESTATUS_ABIERTO_MAX && cantidad > 0;
     });
   });
 }
