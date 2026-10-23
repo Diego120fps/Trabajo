@@ -326,6 +326,7 @@ function cargarTodo() {
       renderSemaforoTable();
     })
     .catch(function (err) {
+      logFetchError('Error general en cargarTodo()', err);
       showStatus('No se pudo cargar: ' + describeError(err));
     })
     .then(function () {
@@ -356,7 +357,10 @@ function fetchWorkOrdersAbiertas() {
       '&filter=' + filter +
       '&limit=' + WO_LIMIT;
     console.log('Query Work Orders (Branch/Plant ' + branchCode + '):', query);
-    return domo.get(query);
+    return domo.get(query).catch(function (err) {
+      logFetchError('Error en query Work Orders (Branch/Plant ' + branchCode + ')', err);
+      throw err;
+    });
   });
 
   return Promise.all(queries).then(function (results) {
@@ -395,7 +399,10 @@ function fetchBom() {
       '&filter=' + filter +
       '&limit=' + BOM_LIMIT;
     console.log('Query BOM (Branch ' + branchCode + '):', query);
-    return domo.get(query);
+    return domo.get(query).catch(function (err) {
+      logFetchError('Error en query BOM (Branch ' + branchCode + ')', err);
+      throw err;
+    });
   });
 
   return Promise.all(queries).then(function (results) {
@@ -440,7 +447,8 @@ function expandirComponentes(wosAbiertas, bomRows) {
 }
 
 function fetchTracking() {
-  return domo.get(TRACKING_DOCS_URL + '?limit=1000').catch(function () {
+  return domo.get(TRACKING_DOCS_URL + '?limit=1000').catch(function (err) {
+    logFetchError('Error leyendo tracking de AppDB', err);
     return [];
   });
 }
@@ -1146,7 +1154,33 @@ function formatTiempoRespuesta(c) {
 function describeError(err) {
   if (!err) return 'Error desconocido';
   if (typeof err === 'string') return err;
-  return err.message || JSON.stringify(err);
+  // Un Response de fetch (lo que regresa domo.get/post cuando el HTTP
+  // falla) no serializa nada útil con JSON.stringify -- por eso antes
+  // esto se veía como "{}". status/statusText sí son accesibles directo.
+  if (err.status || err.statusText) {
+    return 'HTTP ' + (err.status || '?') + ' ' + (err.statusText || '') +
+      ' (revisa la consola del navegador: ahí queda el detalle de la query y, si se pudo leer, el cuerpo de la respuesta)';
+  }
+  if (err.message) return err.message;
+  try {
+    var json = JSON.stringify(err);
+    return json === '{}' ? 'Error sin detalle (revisa la consola del navegador)' : json;
+  } catch (e) {
+    return String(err);
+  }
+}
+
+// Loguea el error crudo y, si es un Response de fetch, intenta leer su
+// cuerpo (suele traer el motivo real del 400/404/500 de la Data API).
+function logFetchError(etiqueta, err) {
+  console.error(etiqueta, err);
+  if (err && typeof err.text === 'function') {
+    err.text()
+      .then(function (body) {
+        console.error(etiqueta + ' - cuerpo de la respuesta:', body);
+      })
+      .catch(function () {});
+  }
 }
 
 function showStatus(msg) {
