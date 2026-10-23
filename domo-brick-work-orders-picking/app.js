@@ -33,7 +33,10 @@ var FIELD_WO_NUMBER = 'WO_DOC_NUMBER';                        // Número/folio d
 var FIELD_WO_ITEM = 'WO_ITEM_NUMBER_SECOND';                  // Item a producir
 var FIELD_WO_LINEA = 'WO_CAT_CODE_01';                        // Línea/centro de trabajo (ya no se captura a mano)
 var FIELD_WO_BRANCH_PLANT = 'WO_BRANCH_PLANT';                // Branch/Plant de la orden
-var FIELD_WO_CANTIDAD_PENDIENTE = 'WO_QUANTITY_BACKORDERED';  // Cantidad pendiente de surtir
+// Cantidad pendiente = WO_QUANTITY_ORDERED - WO_QUANTITY_COMPLETED (no hay
+// un campo directo de "pendiente" en el dataset).
+var FIELD_WO_QTY_ORDERED = 'WO_QUANTITY_ORDERED';
+var FIELD_WO_QTY_COMPLETED = 'WO_QUANTITY_COMPLETED';
 var FIELD_WO_ESTATUS = 'WO_STATUS_CODE';                      // Campo de estatus de la orden
 
 // "Abierta" = WO_STATUS_CODE entre estos dos valores (inclusive).
@@ -364,7 +367,7 @@ function fetchWorkOrdersAbiertas() {
     return Promise.resolve([]);
   }
 
-  var fields = [FIELD_WO_NUMBER, FIELD_WO_ITEM, FIELD_WO_LINEA, FIELD_WO_BRANCH_PLANT, FIELD_WO_CANTIDAD_PENDIENTE, FIELD_WO_ESTATUS];
+  var fields = [FIELD_WO_NUMBER, FIELD_WO_ITEM, FIELD_WO_LINEA, FIELD_WO_BRANCH_PLANT, FIELD_WO_QTY_ORDERED, FIELD_WO_QTY_COMPLETED, FIELD_WO_ESTATUS];
 
   var queries = BRANCH_CODES.map(function (branchCode) {
     var filter = buildFieldFilter(FIELD_WO_BRANCH_PLANT, branchCode);
@@ -382,10 +385,18 @@ function fetchWorkOrdersAbiertas() {
     var rows = [].concat.apply([], results.map(function (r) { return r || []; }));
     return rows.filter(function (r) {
       var estatus = Number(r[FIELD_WO_ESTATUS]);
-      var cantidad = Number(r[FIELD_WO_CANTIDAD_PENDIENTE]) || 0;
+      var cantidad = cantidadPendiente(r);
       return estatus >= WO_ESTATUS_ABIERTO_MIN && estatus <= WO_ESTATUS_ABIERTO_MAX && cantidad > 0;
     });
   });
+}
+
+// No hay un campo directo de "cantidad pendiente" en el dataset: se
+// calcula como ordenada - completada.
+function cantidadPendiente(wo) {
+  var ordenada = Number(wo[FIELD_WO_QTY_ORDERED]) || 0;
+  var completada = Number(wo[FIELD_WO_QTY_COMPLETED]) || 0;
+  return ordenada - completada;
 }
 
 function fetchTracking() {
@@ -442,7 +453,7 @@ function mezclar(wosAbiertas, trackingDocs) {
       item: wo[FIELD_WO_ITEM],
       linea: wo[FIELD_WO_LINEA],
       branchPlant: wo[FIELD_WO_BRANCH_PLANT],
-      cantidad: Number(wo[FIELD_WO_CANTIDAD_PENDIENTE]) || 0,
+      cantidad: cantidadPendiente(wo),
       content: trackingDoc ? trackingDoc.content : { woNumber: woNumber, fechaHoraPendienteDetectada: new Date().toISOString(), estatus: 0 }
     };
   });
