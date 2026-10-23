@@ -27,17 +27,18 @@ var LOCALIDAD_EXCLUIDA = 'SMK';
 var BRANCH_CODES = ['2190'];
 
 // ============================================================
-// TODO: ajusta estos field IDs a los nombres reales de tu dataset de Work
-// Orders (dataset 2). Revisa la consola del navegador: la query exacta y
-// la respuesta cruda quedan logueadas ahí si algo no regresa lo esperado.
+// Field IDs reales del dataset de Work Orders (dataset 2).
 // ============================================================
-var FIELD_WO_NUMBER = 'WO_NUMBER';                  // Número/folio de la Work Order
-var FIELD_WO_ITEM = 'WO_ITEM';                       // Item a producir
-var FIELD_WO_LINEA = 'WO_LINEA';                     // Línea/centro de trabajo (ya no se captura a mano)
-var FIELD_WO_BRANCH_PLANT = 'WO_BRANCH_PLANT';       // Branch/Plant de la orden
-var FIELD_WO_CANTIDAD_PENDIENTE = 'WO_QTY_PENDING';  // Cantidad pendiente de surtir
-var FIELD_WO_ESTATUS = 'WO_STATUS';                  // Campo de estatus de la orden
-var WO_ESTATUS_ABIERTOS = ['OP'];                    // Valor(es) de FIELD_WO_ESTATUS que significan "abierta"
+var FIELD_WO_NUMBER = 'WO_DOC_NUMBER';                        // Número/folio de la Work Order
+var FIELD_WO_ITEM = 'WO_ITEM_NUMBER_SECOND';                  // Item a producir
+var FIELD_WO_LINEA = 'WO_CAT_CODE_01';                        // Línea/centro de trabajo (ya no se captura a mano)
+var FIELD_WO_BRANCH_PLANT = 'WO_BRANCH_PLANT';                // Branch/Plant de la orden
+var FIELD_WO_CANTIDAD_PENDIENTE = 'WO_QUANTITY_BACKORDERED';  // Cantidad pendiente de surtir
+var FIELD_WO_ESTATUS = 'WO_STATUS_CODE';                      // Campo de estatus de la orden
+
+// "Abierta" = WO_STATUS_CODE entre estos dos valores (inclusive).
+var WO_ESTATUS_ABIERTO_MIN = 40;
+var WO_ESTATUS_ABIERTO_MAX = 80;
 var WO_LIMIT = 5000;
 
 // ============================================================
@@ -349,9 +350,10 @@ function cargarTodo() {
     });
 }
 
-// Trae las Work Orders abiertas (una consulta por valor de WO_ESTATUS_ABIERTOS,
-// mismo patrón que BRANCH_CODES: el operador "in (...)" no es confiable) y
-// se queda solo con las que de verdad tienen cantidad pendiente > 0.
+// Trae las Work Orders abiertas (WO_STATUS_CODE entre WO_ESTATUS_ABIERTO_MIN
+// y WO_ESTATUS_ABIERTO_MAX, inclusive -- es un rango, no valores discretos,
+// así que basta una sola consulta con >=/<=) y se queda solo con las que de
+// verdad tienen cantidad pendiente > 0.
 function fetchWorkOrdersAbiertas() {
   if (!workOrdersDatasetId) {
     showStatus('Selecciona el dataset de Work Orders en el brick (esquina inferior izquierda, dataset 2).');
@@ -359,21 +361,17 @@ function fetchWorkOrdersAbiertas() {
   }
 
   var fields = [FIELD_WO_NUMBER, FIELD_WO_ITEM, FIELD_WO_LINEA, FIELD_WO_BRANCH_PLANT, FIELD_WO_CANTIDAD_PENDIENTE, FIELD_WO_ESTATUS];
-  var queries = WO_ESTATUS_ABIERTOS.map(function (valorAbierto) {
-    var filter = buildFieldFilter(FIELD_WO_ESTATUS, valorAbierto);
-    var query =
-      '/data/v1/' + workOrdersDatasetId +
-      '?fields=' + fields.join() +
-      '&filter=' + filter +
-      '&limit=' + WO_LIMIT;
-    console.log('Query Work Orders abiertas:', query);
-    return domo.get(query);
-  });
+  var filter = FIELD_WO_ESTATUS + '>=' + WO_ESTATUS_ABIERTO_MIN + ',' + FIELD_WO_ESTATUS + '<=' + WO_ESTATUS_ABIERTO_MAX;
+  var query =
+    '/data/v1/' + workOrdersDatasetId +
+    '?fields=' + fields.join() +
+    '&filter=' + filter +
+    '&limit=' + WO_LIMIT;
+  console.log('Query Work Orders abiertas:', query);
 
-  return Promise.all(queries).then(function (results) {
-    console.log('Respuesta Work Orders abiertas:', results);
-    var rows = [].concat.apply([], results.map(function (r) { return r || []; }));
-    return rows.filter(function (r) {
+  return domo.get(query).then(function (rows) {
+    console.log('Respuesta Work Orders abiertas:', rows);
+    return (rows || []).filter(function (r) {
       return (Number(r[FIELD_WO_CANTIDAD_PENDIENTE]) || 0) > 0;
     });
   });
