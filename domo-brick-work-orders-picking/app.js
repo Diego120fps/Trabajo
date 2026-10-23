@@ -1,14 +1,14 @@
 var domo = window.domo;
 var datasets = window.datasets;
 
-// Dataset 1 (botón de la esquina inferior izquierda, en orden): Inventario.
-// Se usa SOLO para sugerir localidades FIFO al Asignar.
+// Datasets, en este orden en el botón de la esquina inferior izquierda:
+// 1 = Inventario (FIFO de componentes), 2 = BOM (FG -> componentes),
+// 3 = Work Orders (FG abiertas).
 var datasetId = datasets[0];
-// Dataset 2: Work Orders. Es la fuente de verdad de qué hay que picfar: ya
-// no hay alta manual, esta tabla se arma sola a partir de las WO abiertas.
-var workOrdersDatasetId = datasets[1];
+var bomDatasetId = datasets[1];
+var workOrdersDatasetId = datasets[2];
 
-var FIELD_ITEM_INV = 'ITEM_NUMBER_SECOND';       // Código de item en el dataset de inventario
+var FIELD_ITEM_INV = 'ITEM_NUMBER_SECOND';       // Código de item en el dataset de inventario (ahora: el componente, no el FG)
 var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';    // Branch/Plant: se usa solo para filtrar (BRANCH_CODES)
 var FIELD_LOCATION = 'ILOC_LOCATION';            // Localidad real a donde ir por el material
 var FIELD_QTY_DISPONIBLE = 'ILOC_QTY_ON_HAND';   // Cantidad disponible en esa localidad
@@ -19,22 +19,23 @@ var INVENTARIO_LIMIT = 5000;
 var LOCALIDAD_EXCLUIDA = 'SMK';
 
 // Este almacén (Calle2, según el nombre de ALMACEN_COLLECTION de abajo)
-// solo surte desde estos Branch/Plant. AJUSTA este código si Calle2 no es
-// '2190' en tu instancia (viene del grupo "Calle2" de
-// domo-brick-branch-item-pivot) -- el operador "in (...)" de la Data API
-// de DOMO no se comportó confiable con varios valores, así que si agregas
-// más de un código se hace UNA consulta por código y se juntan resultados.
+// solo surte desde estos Branch/Plant. El operador "in (...)" de la Data
+// API de DOMO no se comportó confiable con varios valores, así que si
+// agregas más de un código se hace UNA consulta por código y se juntan
+// resultados (mismo patrón usado para WO y para BOM).
 var BRANCH_CODES = ['2190'];
 
 // ============================================================
-// Field IDs reales del dataset de Work Orders (dataset 2).
+// Field IDs reales del dataset de Work Orders (dataset 3). Son a nivel
+// Finished Good (FG): la cantidad real a surtir se calcula por componente
+// vía BOM (ver más abajo), no se surte el FG directo.
 // ============================================================
 var FIELD_WO_NUMBER = 'WO_DOC_NUMBER';                        // Número/folio de la Work Order
-var FIELD_WO_ITEM = 'WO_ITEM_NUMBER_SECOND';                  // Item a producir
-var FIELD_WO_LINEA = 'WO_CAT_CODE_01';                        // Línea/centro de trabajo (ya no se captura a mano)
+var FIELD_WO_ITEM = 'WO_ITEM_NUMBER_SECOND';                  // Item Finished Good a producir
+var FIELD_WO_LINEA = 'WO_CAT_CODE_01';                        // Línea/centro de trabajo
 var FIELD_WO_BRANCH_PLANT = 'WO_BRANCH_PLANT';                // Branch/Plant de la orden
-// Cantidad pendiente = WO_QUANTITY_ORDERED - WO_QUANTITY_COMPLETED (no hay
-// un campo directo de "pendiente" en el dataset).
+var FIELD_WO_DATE_START = 'WO_DATE_START';                    // Fecha de inicio: se ordena de más antigua a más nueva
+// Cantidad pendiente (FG) = WO_QUANTITY_ORDERED - WO_QUANTITY_COMPLETED.
 var FIELD_WO_QTY_ORDERED = 'WO_QUANTITY_ORDERED';
 var FIELD_WO_QTY_COMPLETED = 'WO_QUANTITY_COMPLETED';
 var FIELD_WO_ESTATUS = 'WO_STATUS_CODE';                      // Campo de estatus de la orden
@@ -45,24 +46,35 @@ var WO_ESTATUS_ABIERTO_MAX = 80;
 var WO_LIMIT = 5000;
 
 // ============================================================
-// AppDB: tracking de Asignar/Release por Work Order. Vive en UN SOLO
-// brick/app (este) -- AppDB está aislado por app en DOMO, así que no se
-// puede compartir con el proyecto de Solicitudes aunque uses el mismo
-// nombre de colección (por eso cada proyecto tiene su propio
-// almacen_usuarios, con su propio alta/autoregistro).
+// Field IDs del dataset de BOM (dataset 2): qué componentes (materia
+// prima) hacen falta por cada Finished Good, y en qué proporción.
+// ============================================================
+var FIELD_BOM_FG_ITEM = 'FINISHED_GOOD_ITEM_NUMBER';   // FG: se junta con FIELD_WO_ITEM
+var FIELD_BOM_BRANCH = 'COMPONENT_ITEM_BRANCH';        // Branch: se junta con FIELD_WO_BRANCH_PLANT
+var FIELD_BOM_COMPONENT_ITEM = 'COMPONENT_ITEM_NUMBER'; // Componente que hay que surtir
+var FIELD_BOM_COMPONENT_QTY = 'COMPONENT_QUANTITY';     // Factor de uso: se multiplica x la cantidad pendiente de la WO
+var BOM_LIMIT = 5000;
+
+// ============================================================
+// AppDB: tracking de Asignar/Release por componente x Work Order (no por
+// WO completa: una WO puede tener varios componentes, cada uno con su
+// propio ciclo de Asignar/Release). Vive en UN SOLO brick/app (este) --
+// AppDB está aislado por app en DOMO, así que no se puede compartir con
+// el proyecto de Solicitudes aunque uses el mismo nombre de colección.
 // ============================================================
 var TRACKING_COLLECTION = 'work_order_picking';
 var TRACKING_DOCS_URL = '/domo/datastores/v1/collections/' + TRACKING_COLLECTION + '/documents';
 
 // Lista blanca de quién puede Asignar/Release, propia de este proyecto
-// (Calle2). OJO: esto es control de UI, NO una barrera de seguridad real.
+// (Calle2), dada de alta a mano por el administrador en AppDB -- no hay
+// autoregistro. OJO: esto es control de UI, NO una barrera de seguridad real.
 var ALMACEN_COLLECTION = 'almacen_usuarios_calle2';
 var ALMACEN_DOCS_URL = '/domo/datastores/v1/collections/' + ALMACEN_COLLECTION + '/documents';
 
 var ESTATUS_LABELS = { 0: 'Pendiente', 1: 'En proceso', 2: 'Completado' };
 
-// Umbrales del semáforo en minutos desde que se detectó la WO pendiente (o
-// el tiempo de respuesta ya congelado si se liberó).
+// Umbrales del semáforo en minutos desde que se detectó el componente
+// pendiente (o el tiempo de respuesta ya congelado si se liberó).
 var AGING_AMARILLO_MIN = 30;
 var AGING_ROJO_MIN = 45;
 
@@ -70,8 +82,7 @@ var AUTO_REFRESH_MS = 60000;
 
 // Este navegador no tiene forma de saber quién eres si domo.env()/el
 // endpoint de entorno no están disponibles en este tipo de brick; se
-// recuerda el nombre capturado manualmente aquí (clave distinta a la del
-// proyecto de Solicitudes para no mezclar identidades entre los dos).
+// recuerda el nombre capturado manualmente aquí.
 var LOCAL_USER_KEY = 'wo_picking_miIdentidad';
 
 // ---------- DOM ----------
@@ -88,6 +99,8 @@ var miNombreInput = document.getElementById('miNombreInput');
 var btnGuardarNombre = document.getElementById('btnGuardarNombre');
 
 var btnRefrescar = document.getElementById('btnRefrescar');
+var workOrdersTbody = document.querySelector('#workOrdersTable tbody');
+
 var buscarInput = document.getElementById('buscarInput');
 var mostrarCompletadasInput = document.getElementById('mostrarCompletadasInput');
 var statusMsg = document.getElementById('statusMsg');
@@ -102,18 +115,21 @@ var countAmarilloEl = document.getElementById('countAmarillo');
 var countRojoEl = document.getElementById('countRojo');
 
 // ---------- Estado ----------
-// Una fila por Work Order abierta, mezclando el dato vivo del dataset
-// (item/línea/cantidad pendiente/branch) con el tracking de AppDB
-// (userPicking/userRelease/fechas/estatus). Ver mezclar().
-var filas = [];
+// Tabla 1 (resumen, solo lectura): una fila por Work Order abierta, con el
+// % de cumplimiento calculado sobre filasComponentes.
+var filasWO = [];
+// Tabla 2 (Asignar/Release): una fila por componente de BOM x Work Order,
+// mezclando el dato vivo (item/cantidad/línea) con el tracking de AppDB
+// (userPicking/userRelease/fechas/estatus). Ver mezclarComponentes().
+var filasComponentes = [];
 var almacenUsuarios = []; // lista blanca de almacén: [{id, content: {userId, nombre}}, ...]
 var CURRENT_USER = { id: null, label: 'Usuario desconocido' };
 var isAlmacen = false;
 
-// Fila (identificada por woNumber) donde se está capturando el usuario de
-// Asignar o de Release ahora mismo.
+// Fila (identificada por key = woNumber+componentItem) donde se está
+// capturando el usuario de Asignar o de Release ahora mismo.
 var actionMode = null;
-// Cache de la sugerencia FIFO por WO (keyed por woNumber) mientras se está Asignando.
+// Cache de la sugerencia FIFO por componente (keyed por fila.key) mientras se está Asignando.
 var fifoCache = {};
 
 init();
@@ -162,6 +178,7 @@ function ensureCollections() {
         schema: {
           columns: [
             { name: 'woNumber', type: 'STRING' },
+            { name: 'componentItem', type: 'STRING' },
             { name: 'fechaHoraPendienteDetectada', type: 'DATETIME' },
             { name: 'estatus', type: 'LONG' },
             { name: 'userPicking', type: 'STRING' },
@@ -220,10 +237,11 @@ function mostrarCapturaManual() {
 
 // El id se deriva del nombre (sin parte aleatoria) para que sea predecible:
 // la misma persona escribiendo el mismo nombre en cualquier navegador
-// obtiene el mismo id, y si prefieres precargar "almacen_usuarios_calle2"
-// a mano desde el explorador de AppDB de DOMO en vez de que cada quien use
-// el botón "Registrarme como almacén", el id a escribir es exactamente
-// "local-" + el nombre en minúsculas con guiones en vez de espacios.
+// obtiene el mismo id. Si prefieres dar de alta a mano en
+// "almacen_usuarios_calle2" desde el explorador de AppDB de DOMO, el id a
+// escribir es exactamente "local-" + el nombre en minúsculas con guiones
+// en vez de espacios (ej. "Juan Pérez" -> "local-juan-pérez"); también
+// matchea directo por el campo "nombre" tal cual.
 function guardarIdentidadManual() {
   var nombre = miNombreInput.value.trim();
   if (!nombre) {
@@ -277,29 +295,33 @@ function normalizarTexto(s) {
 }
 
 function renderRoleUI() {
-  // El id se muestra junto al nombre para poder darlos de alta a mano en el
-  // explorador de AppDB de DOMO (colección "almacen_usuarios_calle2"): tú
-  // controlas quién entra, no hay autoregistro.
   userLabelEl.textContent = CURRENT_USER.id ? CURRENT_USER.label + ' (id: ' + CURRENT_USER.id + ')' : CURRENT_USER.label;
   roleBadgeEl.textContent = isAlmacen ? 'Almacén' : 'Sin rol';
   roleBadgeEl.className = 'role-badge ' + (isAlmacen ? 'role-almacen' : 'role-solicitante');
   renderTable();
 }
 
-// ---------- Fuente de datos: Work Orders abiertas + tracking ----------
+// ---------- Fuente de datos: Work Orders abiertas + BOM + tracking ----------
 function cargarTodo() {
   setLoading(true);
   showStatus('');
   return fetchWorkOrdersAbiertas()
     .then(function (wosAbiertas) {
-      return fetchTracking().then(function (trackingDocs) {
-        return crearTrackingFaltante(wosAbiertas, trackingDocs).then(function (trackingFinal) {
-          return mezclar(wosAbiertas, trackingFinal);
+      return fetchBom().then(function (bomRows) {
+        var pendientes = expandirComponentes(wosAbiertas, bomRows);
+        return fetchTracking().then(function (trackingDocs) {
+          return crearTrackingFaltante(pendientes, trackingDocs).then(function (trackingFinal) {
+            var componentesFinal = mezclarComponentes(pendientes, trackingFinal);
+            var woFinal = construirFilasWO(wosAbiertas, componentesFinal);
+            return { wo: woFinal, componentes: componentesFinal };
+          });
         });
       });
     })
-    .then(function (filasFinal) {
-      filas = filasFinal;
+    .then(function (resultado) {
+      filasWO = resultado.wo;
+      filasComponentes = resultado.componentes;
+      renderWorkOrdersTable();
       renderTable();
       renderSemaforoTable();
     })
@@ -311,21 +333,20 @@ function cargarTodo() {
     });
 }
 
-// Trae las Work Orders de los Branch/Plant de BRANCH_CODES (una consulta
-// por código, mismo patrón ya usado para el inventario: el operador
-// "in (...)" no es confiable), y se queda solo con las que están
-// "abiertas" (WO_STATUS_CODE entre WO_ESTATUS_ABIERTO_MIN/MAX) y con
-// cantidad pendiente > 0. El rango de estatus se filtra en JS (Number())
-// en vez de en la query: WO_STATUS_CODE puede venir como texto (ej. "040")
-// y el operador >=/<= del filtro de DOMO no se comportó confiable contra
-// eso -- Number() sí lo compara bien sin importar el formato exacto.
+// Trae las Work Orders (Finished Good) de los Branch/Plant de BRANCH_CODES
+// (una consulta por código, mismo patrón ya usado para el inventario), y se
+// queda solo con las que están "abiertas" (WO_STATUS_CODE entre
+// WO_ESTATUS_ABIERTO_MIN/MAX) y con cantidad FG pendiente > 0. El rango de
+// estatus se filtra en JS (Number()): WO_STATUS_CODE puede venir como
+// texto (ej. "040") y el operador >=/<= del filtro de DOMO no se comportó
+// confiable contra eso.
 function fetchWorkOrdersAbiertas() {
   if (!workOrdersDatasetId) {
-    showStatus('Selecciona el dataset de Work Orders en el brick (esquina inferior izquierda, dataset 2).');
+    showStatus('Selecciona el dataset de Work Orders en el brick (esquina inferior izquierda, dataset 3).');
     return Promise.resolve([]);
   }
 
-  var fields = [FIELD_WO_NUMBER, FIELD_WO_ITEM, FIELD_WO_LINEA, FIELD_WO_BRANCH_PLANT, FIELD_WO_QTY_ORDERED, FIELD_WO_QTY_COMPLETED, FIELD_WO_ESTATUS];
+  var fields = [FIELD_WO_NUMBER, FIELD_WO_ITEM, FIELD_WO_LINEA, FIELD_WO_BRANCH_PLANT, FIELD_WO_DATE_START, FIELD_WO_QTY_ORDERED, FIELD_WO_QTY_COMPLETED, FIELD_WO_ESTATUS];
 
   var queries = BRANCH_CODES.map(function (branchCode) {
     var filter = buildFieldFilter(FIELD_WO_BRANCH_PLANT, branchCode);
@@ -349,12 +370,73 @@ function fetchWorkOrdersAbiertas() {
   });
 }
 
-// No hay un campo directo de "cantidad pendiente" en el dataset: se
-// calcula como ordenada - completada.
+// No hay un campo directo de "cantidad pendiente" en el dataset de Work
+// Orders: se calcula como ordenada - completada (a nivel Finished Good).
 function cantidadPendiente(wo) {
   var ordenada = Number(wo[FIELD_WO_QTY_ORDERED]) || 0;
   var completada = Number(wo[FIELD_WO_QTY_COMPLETED]) || 0;
   return ordenada - completada;
+}
+
+// Trae el BOM de los Branch/Plant de BRANCH_CODES (mismo patrón que Work
+// Orders/Inventario: una consulta por código).
+function fetchBom() {
+  if (!bomDatasetId) {
+    showStatus('Selecciona el dataset de BOM en el brick (esquina inferior izquierda, dataset 2).');
+    return Promise.resolve([]);
+  }
+
+  var fields = [FIELD_BOM_FG_ITEM, FIELD_BOM_BRANCH, FIELD_BOM_COMPONENT_ITEM, FIELD_BOM_COMPONENT_QTY];
+  var queries = BRANCH_CODES.map(function (branchCode) {
+    var filter = buildFieldFilter(FIELD_BOM_BRANCH, branchCode);
+    var query =
+      '/data/v1/' + bomDatasetId +
+      '?fields=' + fields.join() +
+      '&filter=' + filter +
+      '&limit=' + BOM_LIMIT;
+    console.log('Query BOM (Branch ' + branchCode + '):', query);
+    return domo.get(query);
+  });
+
+  return Promise.all(queries).then(function (results) {
+    console.log('Respuesta BOM (por Branch):', results);
+    return [].concat.apply([], results.map(function (r) { return r || []; }));
+  });
+}
+
+// Por cada WO abierta, junta sus componentes de BOM (por FINISHED_GOOD_ITEM_NUMBER
+// = item FG de la WO) y calcula cuánto de cada componente hace falta:
+// COMPONENT_QUANTITY (factor de uso por 1 FG) x cantidad FG pendiente.
+function expandirComponentes(wosAbiertas, bomRows) {
+  var bomPorFgItem = {};
+  bomRows.forEach(function (b) {
+    var fg = String(b[FIELD_BOM_FG_ITEM]);
+    if (!bomPorFgItem[fg]) bomPorFgItem[fg] = [];
+    bomPorFgItem[fg].push(b);
+  });
+
+  var pendientes = [];
+  wosAbiertas.forEach(function (wo) {
+    var woNumber = String(wo[FIELD_WO_NUMBER]);
+    var fgItem = String(wo[FIELD_WO_ITEM]);
+    var cantidadFG = cantidadPendiente(wo);
+    var componentesBom = bomPorFgItem[fgItem] || [];
+
+    componentesBom.forEach(function (comp) {
+      var factor = Number(comp[FIELD_BOM_COMPONENT_QTY]) || 0;
+      var cantidadComponente = factor * cantidadFG;
+      if (cantidadComponente <= 0) return;
+      pendientes.push({
+        woNumber: woNumber,
+        fgItem: fgItem,
+        componentItem: String(comp[FIELD_BOM_COMPONENT_ITEM]),
+        cantidad: cantidadComponente,
+        linea: wo[FIELD_WO_LINEA],
+        branchPlant: wo[FIELD_WO_BRANCH_PLANT]
+      });
+    });
+  });
+  return pendientes;
 }
 
 function fetchTracking() {
@@ -363,28 +445,35 @@ function fetchTracking() {
   });
 }
 
-// Para cada WO abierta sin registro de tracking todavía, crea uno con la
-// fecha/hora en que esta app la detectó pendiente por primera vez (es el
-// equivalente al "fechaHoraInsert" de las solicitudes manuales, pero
-// automático: nadie lo captura). Si ya existe, se deja tal cual (preserva
-// userPicking/userRelease/fechas ya capturados). Tras crear lo que faltaba,
-// se vuelve a traer el tracking completo para tener los ids reales.
-function crearTrackingFaltante(wosAbiertas, trackingDocs) {
-  var trackingPorWo = {};
+// Clave única por componente x Work Order (una WO puede necesitar varios
+// componentes, cada uno con su propio ciclo de Asignar/Release).
+function trackingKey(woNumber, componentItem) {
+  return woNumber + '|' + componentItem;
+}
+
+// Para cada componente pendiente sin registro de tracking todavía, crea
+// uno con la fecha/hora en que esta app lo detectó pendiente por primera
+// vez (equivalente al "fechaHoraInsert" manual de antes, pero automático).
+// Si ya existe, se deja tal cual (preserva userPicking/userRelease/fechas
+// ya capturados). Tras crear lo que faltaba, se vuelve a traer el tracking
+// completo para tener los ids reales.
+function crearTrackingFaltante(pendientes, trackingDocs) {
+  var trackingPorKey = {};
   trackingDocs.forEach(function (doc) {
-    trackingPorWo[doc.content.woNumber] = doc;
+    trackingPorKey[trackingKey(doc.content.woNumber, doc.content.componentItem)] = doc;
   });
 
-  var faltantes = wosAbiertas.filter(function (wo) {
-    return !trackingPorWo[String(wo[FIELD_WO_NUMBER])];
+  var faltantes = pendientes.filter(function (p) {
+    return !trackingPorKey[trackingKey(p.woNumber, p.componentItem)];
   });
 
   if (faltantes.length === 0) return Promise.resolve(trackingDocs);
 
-  var creaciones = faltantes.map(function (wo) {
+  var creaciones = faltantes.map(function (p) {
     return domo.post(TRACKING_DOCS_URL, {
       content: {
-        woNumber: String(wo[FIELD_WO_NUMBER]),
+        woNumber: p.woNumber,
+        componentItem: p.componentItem,
         fechaHoraPendienteDetectada: new Date().toISOString(),
         estatus: 0
       }
@@ -396,32 +485,111 @@ function crearTrackingFaltante(wosAbiertas, trackingDocs) {
   });
 }
 
-function mezclar(wosAbiertas, trackingDocs) {
-  var trackingPorWo = {};
+function mezclarComponentes(pendientes, trackingDocs) {
+  var trackingPorKey = {};
   trackingDocs.forEach(function (doc) {
-    trackingPorWo[doc.content.woNumber] = doc;
+    trackingPorKey[trackingKey(doc.content.woNumber, doc.content.componentItem)] = doc;
   });
 
-  return wosAbiertas.map(function (wo) {
-    var woNumber = String(wo[FIELD_WO_NUMBER]);
-    var trackingDoc = trackingPorWo[woNumber];
+  return pendientes.map(function (p) {
+    var key = trackingKey(p.woNumber, p.componentItem);
+    var trackingDoc = trackingPorKey[key];
     return {
+      key: key,
       docId: trackingDoc ? trackingDoc.id : null, // null = aún no se pudo crear su tracking; refresca
-      woNumber: woNumber,
-      item: wo[FIELD_WO_ITEM],
-      linea: wo[FIELD_WO_LINEA],
-      branchPlant: wo[FIELD_WO_BRANCH_PLANT],
-      cantidad: cantidadPendiente(wo),
-      content: trackingDoc ? trackingDoc.content : { woNumber: woNumber, fechaHoraPendienteDetectada: new Date().toISOString(), estatus: 0 }
+      woNumber: p.woNumber,
+      fgItem: p.fgItem,
+      item: p.componentItem, // el componente: reutiliza "item" para no duplicar FIFO/render
+      linea: p.linea,
+      branchPlant: p.branchPlant,
+      cantidad: p.cantidad,
+      content: trackingDoc
+        ? trackingDoc.content
+        : { woNumber: p.woNumber, componentItem: p.componentItem, fechaHoraPendienteDetectada: new Date().toISOString(), estatus: 0 }
     };
   });
 }
 
-// ---------- Tabla Asignar / Release ----------
+// Tabla 1 (resumen): una fila por WO con su % de cumplimiento, calculado
+// como componentes ya Liberados / total de componentes de esa WO. Es un
+// conteo, no una suma de cantidades, porque los componentes pueden venir
+// en unidades distintas entre sí (sumar cantidades crudas no sería
+// comparable). Ordenada por WO_DATE_START, de más antigua a más nueva.
+function construirFilasWO(wosAbiertas, componentesFinal) {
+  var componentesPorWo = {};
+  componentesFinal.forEach(function (fc) {
+    if (!componentesPorWo[fc.woNumber]) componentesPorWo[fc.woNumber] = [];
+    componentesPorWo[fc.woNumber].push(fc);
+  });
+
+  return wosAbiertas
+    .map(function (wo) {
+      var woNumber = String(wo[FIELD_WO_NUMBER]);
+      var componentes = componentesPorWo[woNumber] || [];
+      var total = componentes.length;
+      var completados = componentes.filter(function (fc) {
+        return fc.content.estatus === 2;
+      }).length;
+
+      var estatus;
+      if (total === 0) {
+        estatus = 'Sin BOM';
+      } else if (completados === 0) {
+        estatus = 'Pendiente';
+      } else if (completados === total) {
+        estatus = 'Completado';
+      } else {
+        estatus = 'En proceso';
+      }
+
+      return {
+        woNumber: woNumber,
+        item: wo[FIELD_WO_ITEM],
+        linea: wo[FIELD_WO_LINEA],
+        cantidad: cantidadPendiente(wo),
+        fechaInicio: wo[FIELD_WO_DATE_START],
+        estatus: estatus,
+        porcentaje: total > 0 ? Math.round((completados / total) * 100) : null
+      };
+    })
+    .sort(function (a, b) {
+      return new Date(a.fechaInicio) - new Date(b.fechaInicio);
+    });
+}
+
+// ---------- Tabla 1: Work Orders (resumen, solo lectura) ----------
+function renderWorkOrdersTable() {
+  workOrdersTbody.innerHTML = '';
+
+  if (filasWO.length === 0) {
+    var emptyTr = document.createElement('tr');
+    var emptyTd = document.createElement('td');
+    emptyTd.colSpan = 7;
+    emptyTd.className = 'empty-cell';
+    emptyTd.textContent = 'Sin Work Orders abiertas para mostrar.';
+    emptyTr.appendChild(emptyTd);
+    workOrdersTbody.appendChild(emptyTr);
+    return;
+  }
+
+  filasWO.forEach(function (fila) {
+    var tr = document.createElement('tr');
+    tr.appendChild(cell(fila.woNumber));
+    tr.appendChild(cell(fila.item));
+    tr.appendChild(cell(fila.linea));
+    tr.appendChild(cell(formatNumber(fila.cantidad), 'numeric'));
+    tr.appendChild(cell(formatDateTime(fila.fechaInicio)));
+    tr.appendChild(cell(fila.estatus));
+    tr.appendChild(cell(fila.porcentaje === null ? 'Sin BOM' : fila.porcentaje + '%', 'numeric'));
+    workOrdersTbody.appendChild(tr);
+  });
+}
+
+// ---------- Tabla 2: Componentes a surtir (Asignar / Release) ----------
 function renderTable() {
   var filtro = buscarInput.value.trim().toLowerCase();
   var mostrarCompletadas = mostrarCompletadasInput.checked;
-  var rows = filas.filter(function (fila) {
+  var rows = filasComponentes.filter(function (fila) {
     var c = fila.content;
     if (!mostrarCompletadas && c.estatus === 2) return false;
     if (!filtro) return true;
@@ -436,9 +604,9 @@ function renderTable() {
   if (rows.length === 0) {
     var emptyTr = document.createElement('tr');
     var emptyTd = document.createElement('td');
-    emptyTd.colSpan = 12;
+    emptyTd.colSpan = 11;
     emptyTd.className = 'empty-cell';
-    emptyTd.textContent = 'Sin Work Orders abiertas para mostrar.';
+    emptyTd.textContent = 'Sin componentes pendientes para mostrar.';
     emptyTr.appendChild(emptyTd);
     tbody.appendChild(emptyTr);
     return;
@@ -453,7 +621,7 @@ function renderTable() {
 
 function buildRowGroup(fila) {
   var trs = [buildRow(fila)];
-  if (isAlmacen && actionMode && actionMode.woNumber === fila.woNumber && actionMode.type === 'picking' && !actionMode.esEdicion) {
+  if (isAlmacen && actionMode && actionMode.key === fila.key && actionMode.type === 'picking' && !actionMode.esEdicion) {
     trs.push(buildFifoRow(fila));
   }
   return trs;
@@ -465,9 +633,8 @@ function buildRow(fila) {
 
   tr.appendChild(cell(fila.woNumber));
   tr.appendChild(cell(fila.item));
-  tr.appendChild(cell(fila.linea));
-  tr.appendChild(cell(fila.branchPlant));
   tr.appendChild(cell(formatNumber(fila.cantidad), 'numeric'));
+  tr.appendChild(cell(fila.linea));
   tr.appendChild(cell(formatDateTime(c.fechaHoraPendienteDetectada)));
   tr.appendChild(cell(ESTATUS_LABELS[c.estatus] !== undefined ? ESTATUS_LABELS[c.estatus] : c.estatus));
   tr.appendChild(buildPickingCell(fila));
@@ -489,7 +656,7 @@ function buildPickingCell(fila) {
     return td;
   }
 
-  if (actionMode && actionMode.woNumber === fila.woNumber && actionMode.type === 'picking') {
+  if (actionMode && actionMode.key === fila.key && actionMode.type === 'picking') {
     td.appendChild(
       buildInlineCapture('Usuario que asigna', actionMode.valorInicial, function (valor) {
         if (actionMode.esEdicion) {
@@ -511,7 +678,7 @@ function buildPickingCell(fila) {
     btnEditarPicking.className = 'secondary small';
     btnEditarPicking.textContent = 'Editar';
     btnEditarPicking.addEventListener('click', function () {
-      actionMode = { woNumber: fila.woNumber, type: 'picking', esEdicion: true, valorInicial: c.userPicking };
+      actionMode = { key: fila.key, type: 'picking', esEdicion: true, valorInicial: c.userPicking };
       renderTable();
     });
     td.appendChild(btnEditarPicking);
@@ -525,7 +692,7 @@ function buildPickingCell(fila) {
     btnAsignar.disabled = !fila.docId;
     btnAsignar.title = fila.docId ? '' : 'Todavía preparando este registro, refresca en unos segundos.';
     btnAsignar.addEventListener('click', function () {
-      actionMode = { woNumber: fila.woNumber, type: 'picking', esEdicion: false, valorInicial: CURRENT_USER.label };
+      actionMode = { key: fila.key, type: 'picking', esEdicion: false, valorInicial: CURRENT_USER.label };
       fetchFifoLines(fila);
     });
     td.appendChild(btnAsignar);
@@ -539,7 +706,7 @@ function confirmarPicking(fila, userPicking) {
     showStatus('Ingresa el usuario que asigna.');
     return;
   }
-  var fifo = fifoCache[fila.woNumber];
+  var fifo = fifoCache[fila.key];
   var content = Object.assign({}, fila.content, {
     userPicking: userPicking,
     fechaHoraPicking: new Date().toISOString(),
@@ -558,13 +725,13 @@ function editarPicking(fila, userPicking) {
   guardarCambios(fila, content);
 }
 
-// ---------- Sugerencia FIFO (según la cantidad pendiente de la WO) ----------
+// ---------- Sugerencia FIFO (según la cantidad de componente requerida) ----------
 function fetchFifoLines(fila) {
-  fifoCache[fila.woNumber] = { loading: true, lineas: [], cubierto: 0, faltante: fila.cantidad, error: null };
+  fifoCache[fila.key] = { loading: true, lineas: [], cubierto: 0, faltante: fila.cantidad, error: null };
   renderTable();
 
   if (!datasetId) {
-    fifoCache[fila.woNumber] = {
+    fifoCache[fila.key] = {
       loading: false,
       lineas: [],
       cubierto: 0,
@@ -580,11 +747,11 @@ function fetchFifoLines(fila) {
       var resultado = calcularLineasFifo(rows, fila.cantidad);
       resultado.loading = false;
       resultado.error = null;
-      fifoCache[fila.woNumber] = resultado;
+      fifoCache[fila.key] = resultado;
       renderTable();
     })
     .catch(function (err) {
-      fifoCache[fila.woNumber] = {
+      fifoCache[fila.key] = {
         loading: false,
         lineas: [],
         cubierto: 0,
@@ -653,7 +820,7 @@ function buildFifoRow(fila) {
   var tr = document.createElement('tr');
   tr.className = 'fifo-row';
   var td = document.createElement('td');
-  td.colSpan = 12;
+  td.colSpan = 11;
   td.appendChild(renderFifoPanel(fila));
   tr.appendChild(td);
   return tr;
@@ -663,7 +830,7 @@ function renderFifoPanel(fila) {
   var wrapper = document.createElement('div');
   wrapper.className = 'fifo-panel';
 
-  var estado = fifoCache[fila.woNumber];
+  var estado = fifoCache[fila.key];
   if (!estado || estado.loading) {
     wrapper.textContent = 'Calculando localidades FIFO...';
     return wrapper;
@@ -684,10 +851,10 @@ function renderFifoPanel(fila) {
     vacio.className = 'hint';
     if (!estado.rowCount) {
       vacio.textContent =
-        'No se encontró inventario para el item "' + fila.item + '" en los Branch/Plant ' + BRANCH_CODES.join('/') +
+        'No se encontró inventario para el componente "' + fila.item + '" en los Branch/Plant ' + BRANCH_CODES.join('/') +
         '. Revisa la consola del navegador (se imprime la query exacta) o confirma que el item existe tal cual en el dataset.';
     } else {
-      vacio.textContent = 'Hay ' + estado.rowCount + ' registro(s) de este item, pero con cantidad disponible en 0.';
+      vacio.textContent = 'Hay ' + estado.rowCount + ' registro(s) de este componente, pero con cantidad disponible en 0.';
     }
     wrapper.appendChild(vacio);
   } else {
@@ -741,7 +908,7 @@ function buildReleaseCell(fila) {
     return td;
   }
 
-  if (actionMode && actionMode.woNumber === fila.woNumber && actionMode.type === 'release') {
+  if (actionMode && actionMode.key === fila.key && actionMode.type === 'release') {
     td.appendChild(
       buildInlineCapture('Usuario que libera', actionMode.valorInicial, function (valor) {
         if (actionMode.esEdicion) {
@@ -763,7 +930,7 @@ function buildReleaseCell(fila) {
     btnEditarRelease.className = 'secondary small';
     btnEditarRelease.textContent = 'Editar';
     btnEditarRelease.addEventListener('click', function () {
-      actionMode = { woNumber: fila.woNumber, type: 'release', esEdicion: true, valorInicial: c.userRelease };
+      actionMode = { key: fila.key, type: 'release', esEdicion: true, valorInicial: c.userRelease };
       renderTable();
     });
     td.appendChild(btnEditarRelease);
@@ -775,7 +942,7 @@ function buildReleaseCell(fila) {
     btnRelease.className = 'small';
     btnRelease.textContent = 'Release';
     btnRelease.addEventListener('click', function () {
-      actionMode = { woNumber: fila.woNumber, type: 'release', esEdicion: false, valorInicial: CURRENT_USER.label };
+      actionMode = { key: fila.key, type: 'release', esEdicion: false, valorInicial: CURRENT_USER.label };
       renderTable();
     });
     td.appendChild(btnRelease);
@@ -811,7 +978,7 @@ function editarRelease(fila, userRelease) {
 
 function guardarCambios(fila, content) {
   if (!fila.docId) {
-    showStatus('Todavía se está preparando el registro de esta Work Order. Refresca e intenta de nuevo.');
+    showStatus('Todavía se está preparando el registro de este componente. Refresca e intenta de nuevo.');
     return;
   }
   setLoading(true);
@@ -860,12 +1027,12 @@ function buildInlineCapture(placeholder, valorInicial, onConfirm) {
   return wrapper;
 }
 
-// ---------- SEMÁFORO (solo lectura) ----------
+// ---------- SEMÁFORO (solo lectura, por componente) ----------
 function renderSemaforoTable() {
   var filtro = buscarSemaforoInput.value.trim().toLowerCase();
   var mostrarCompletadas = mostrarCompletadasSemaforoInput.checked;
 
-  var rows = filas
+  var rows = filasComponentes
     .filter(function (fila) {
       var c = fila.content;
       if (!mostrarCompletadas && c.estatus === 2) return false;
@@ -890,9 +1057,9 @@ function renderSemaforoTable() {
   if (rows.length === 0) {
     var emptyTr = document.createElement('tr');
     var emptyTd = document.createElement('td');
-    emptyTd.colSpan = 9;
+    emptyTd.colSpan = 8;
     emptyTd.className = 'empty-cell';
-    emptyTd.textContent = 'Sin Work Orders para mostrar.';
+    emptyTd.textContent = 'Sin componentes para mostrar.';
     emptyTr.appendChild(emptyTd);
     semaforoTbody.appendChild(emptyTr);
     return;
@@ -910,7 +1077,6 @@ function buildSemaforoRow(fila) {
   tr.appendChild(buildSemaforoCell(c));
   tr.appendChild(cell(fila.woNumber));
   tr.appendChild(cell(fila.item));
-  tr.appendChild(cell(fila.linea));
   tr.appendChild(cell(formatNumber(fila.cantidad), 'numeric'));
   tr.appendChild(cell(ESTATUS_LABELS[c.estatus] !== undefined ? ESTATUS_LABELS[c.estatus] : c.estatus));
   tr.appendChild(cell(c.userPicking));

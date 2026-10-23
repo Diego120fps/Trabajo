@@ -36,19 +36,41 @@
         <button id="btnRefrescar" class="secondary small">Refrescar</button>
       </div>
       <span class="hint">
-        No hay alta manual: esta tabla se genera sola a partir de las Work Orders abiertas.
-        Selecciona en orden, con el botón de la esquina inferior izquierda del brick: dataset 1 = Inventario, dataset 2 = Work Orders.
-        Solo Almacén puede Asignar/Release.
+        No hay alta manual: esta tabla se genera sola a partir de las Work Orders abiertas (Finished Good).
+        Selecciona en orden, con el botón de la esquina inferior izquierda del brick: dataset 1 = Inventario, dataset 2 = BOM, dataset 3 = Work Orders.
+        El % de cumplimiento se calcula sobre los componentes liberados de la tabla de abajo.
       </span>
+
+      <div class="table-wrapper">
+        <table id="workOrdersTable">
+          <thead>
+            <tr>
+              <th>Work Order</th>
+              <th>Item (FG)</th>
+              <th>Línea</th>
+              <th>Cantidad pendiente</th>
+              <th>Fecha inicio</th>
+              <th>Estatus</th>
+              <th>% Cumplimiento</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="section-header">
+        <h3>Componentes a surtir</h3>
+      </div>
+      <span class="hint">Un renglón por componente de BOM x Work Order. Solo Almacén puede Asignar/Release.</span>
       <div class="filters-row">
         <div class="filter-group">
-          <label for="buscarInput">Buscar (WO / item)</label>
+          <label for="buscarInput">Buscar (WO / componente)</label>
           <input type="text" id="buscarInput" placeholder="Filtrar..." />
         </div>
         <div class="filter-group checkbox-group">
           <label>
             <input type="checkbox" id="mostrarCompletadasInput" />
-            Mostrar completadas
+            Mostrar completados
           </label>
         </div>
       </div>
@@ -58,10 +80,9 @@
           <thead>
             <tr>
               <th>Work Order</th>
-              <th>Item</th>
+              <th>Componente</th>
+              <th>Cantidad necesaria</th>
               <th>Línea</th>
-              <th>Branch/Plant</th>
-              <th>Cantidad pendiente</th>
               <th>Pendiente desde</th>
               <th>Estatus</th>
               <th>User Picking</th>
@@ -80,7 +101,7 @@
     <div id="tabSemaforo" style="display:none;">
 
       <div class="section-header">
-        <h3>Semáforo (aging de Work Orders)</h3>
+        <h3>Semáforo (aging de componentes por surtir)</h3>
       </div>
       <span class="hint">Solo lectura. Se refresca solo cada minuto para que el aging se mantenga al día.</span>
 
@@ -101,13 +122,13 @@
 
       <div class="filters-row">
         <div class="filter-group">
-          <label for="buscarSemaforoInput">Buscar (WO / item)</label>
+          <label for="buscarSemaforoInput">Buscar (WO / componente)</label>
           <input type="text" id="buscarSemaforoInput" placeholder="Filtrar..." />
         </div>
         <div class="filter-group checkbox-group">
           <label>
             <input type="checkbox" id="mostrarCompletadasSemaforoInput" />
-            Mostrar completadas
+            Mostrar completados
           </label>
         </div>
       </div>
@@ -118,8 +139,7 @@
             <tr>
               <th>Aging</th>
               <th>Work Order</th>
-              <th>Item</th>
-              <th>Línea</th>
+              <th>Componente</th>
               <th>Cantidad</th>
               <th>Estatus</th>
               <th>User Picking</th>
