@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Picking Work Orders</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="brick-container">
+
+    <div class="topbar">
+      <div class="tabs">
+        <button id="tabBtnAlmacen" class="tab-btn active">Asignar / Release</button>
+        <button id="tabBtnSemaforo" class="tab-btn">Semáforo</button>
+      </div>
+      <div class="user-badge">
+        <span id="userLabel">Identificando usuario...</span>
+        <span id="roleBadge" class="role-badge"></span>
+        <span id="identidadManual" class="inline-action" style="display:none;">
+          <input type="text" id="miNombreInput" placeholder="Tu nombre" />
+          <button id="btnGuardarNombre" class="small">Guardar</button>
+        </span>
+        <button id="btnRegistrarAlmacen" class="secondary small" style="display:none;">Registrarme como almacén</button>
+        <button id="btnQuitarAlmacen" class="secondary small" style="display:none;">Dejar de ser almacén</button>
+      </div>
+    </div>
+    <span class="hint" id="identidadHint" style="display:none;">No se pudo detectar tu usuario de DOMO automáticamente en este brick: escribe tu nombre arriba, se recordará en este navegador.</span>
+
+    <div id="statusMsg" class="status-msg"></div>
+    <div id="loading" class="loading" style="display:none;">Cargando...</div>
+
+    <!-- ================= TAB: ASIGNAR / RELEASE ================= -->
+    <div id="tabAlmacen">
+
+      <div class="section-header">
+        <h3>Work Orders abiertas</h3>
+        <button id="btnRefrescar" class="secondary small">Refrescar</button>
+      </div>
+      <span class="hint">
+        No hay alta manual: esta tabla se genera sola a partir de las Work Orders abiertas.
+        Selecciona en orden, con el botón de la esquina inferior izquierda del brick: dataset 1 = Inventario, dataset 2 = Work Orders.
+        Solo Almacén puede Asignar/Release.
+      </span>
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarInput">Buscar (WO / item)</label>
+          <input type="text" id="buscarInput" placeholder="Filtrar..." />
+        </div>
+        <div class="filter-group checkbox-group">
+          <label>
+            <input type="checkbox" id="mostrarCompletadasInput" />
+            Mostrar completadas
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="solicitudesTable">
+          <thead>
+            <tr>
+              <th>Work Order</th>
+              <th>Item</th>
+              <th>Línea</th>
+              <th>Branch/Plant</th>
+              <th>Cantidad pendiente</th>
+              <th>Pendiente desde</th>
+              <th>Estatus</th>
+              <th>User Picking</th>
+              <th>Fecha/Hora Picking</th>
+              <th>User Release</th>
+              <th>Fecha/Hora Release</th>
+              <th>Tiempo de respuesta</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ================= TAB: SEMÁFORO ================= -->
+    <div id="tabSemaforo" style="display:none;">
+
+      <div class="section-header">
+        <h3>Semáforo (aging de Work Orders)</h3>
+      </div>
+      <span class="hint">Solo lectura. Se refresca solo cada minuto para que el aging se mantenga al día.</span>
+
+      <div class="semaforo-cards">
+        <div class="semaforo-card semaforo-card-verde">
+          <span class="semaforo-card-count" id="countVerde">0</span>
+          <span class="semaforo-card-label">Verde (&lt;30 min)</span>
+        </div>
+        <div class="semaforo-card semaforo-card-amarillo">
+          <span class="semaforo-card-count" id="countAmarillo">0</span>
+          <span class="semaforo-card-label">Amarillo (&lt;45 min)</span>
+        </div>
+        <div class="semaforo-card semaforo-card-rojo">
+          <span class="semaforo-card-count" id="countRojo">0</span>
+          <span class="semaforo-card-label">Rojo (&ge;45 min)</span>
+        </div>
+      </div>
+
+      <div class="filters-row">
+        <div class="filter-group">
+          <label for="buscarSemaforoInput">Buscar (WO / item)</label>
+          <input type="text" id="buscarSemaforoInput" placeholder="Filtrar..." />
+        </div>
+        <div class="filter-group checkbox-group">
+          <label>
+            <input type="checkbox" id="mostrarCompletadasSemaforoInput" />
+            Mostrar completadas
+          </label>
+        </div>
+      </div>
+
+      <div class="table-wrapper">
+        <table id="semaforoTable">
+          <thead>
+            <tr>
+              <th>Aging</th>
+              <th>Work Order</th>
+              <th>Item</th>
+              <th>Línea</th>
+              <th>Cantidad</th>
+              <th>Estatus</th>
+              <th>User Picking</th>
+              <th>User Release</th>
+              <th>Tiempo</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
