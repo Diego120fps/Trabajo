@@ -75,8 +75,6 @@ var identidadManualEl = document.getElementById('identidadManual');
 var identidadHintEl = document.getElementById('identidadHint');
 var miNombreInput = document.getElementById('miNombreInput');
 var btnGuardarNombre = document.getElementById('btnGuardarNombre');
-var btnRegistrarAlmacen = document.getElementById('btnRegistrarAlmacen');
-var btnQuitarAlmacen = document.getElementById('btnQuitarAlmacen');
 
 var solicitanteInput = document.getElementById('solicitanteInput');
 var itemInput = document.getElementById('itemInput');
@@ -134,8 +132,6 @@ function init() {
   buscarSemaforoInput.addEventListener('input', renderSemaforoTable);
   mostrarCompletadasSemaforoInput.addEventListener('change', renderSemaforoTable);
 
-  btnRegistrarAlmacen.addEventListener('click', registrarmeComoAlmacen);
-  btnQuitarAlmacen.addEventListener('click', dejarDeSerAlmacen);
   btnGuardarNombre.addEventListener('click', guardarIdentidadManual);
 
   ensureCollections()
@@ -301,61 +297,18 @@ function normalizarTexto(s) {
 }
 
 function renderRoleUI() {
-  // Se muestra el id junto al nombre para poder replicarlo a mano en el
-  // explorador de AppDB de DOMO si se quiere precargar la colección
-  // "almacen_usuarios" sin que cada persona use el botón de registro.
+  // Se muestra el id junto al nombre para poder darlos de alta a mano en
+  // el explorador de AppDB de DOMO (colección "almacen_usuarios"): tú
+  // controlas quién entra, no hay autoregistro.
   userLabelEl.textContent = CURRENT_USER.id ? CURRENT_USER.label + ' (id: ' + CURRENT_USER.id + ')' : CURRENT_USER.label;
   roleBadgeEl.textContent = isAlmacen ? 'Almacén' : 'Solicitante';
   roleBadgeEl.className = 'role-badge ' + (isAlmacen ? 'role-almacen' : 'role-solicitante');
-  btnRegistrarAlmacen.style.display = !isAlmacen && CURRENT_USER.id ? '' : 'none';
-  btnQuitarAlmacen.style.display = isAlmacen ? '' : 'none';
   // "Quien solicita" se autocompleta con el nombre capturado, sin pisar lo
   // que la persona ya haya escrito a mano.
   if (CURRENT_USER.id && solicitanteInput.value.trim() === '') {
     solicitanteInput.value = CURRENT_USER.label;
   }
   renderTable();
-}
-
-function registrarmeComoAlmacen() {
-  if (!CURRENT_USER.id) {
-    showStatus('No se pudo identificar tu usuario de DOMO.');
-    return;
-  }
-  setLoading(true);
-  domo
-    .post(ALMACEN_DOCS_URL, { content: { userId: CURRENT_USER.id, nombre: CURRENT_USER.label } })
-    .then(cargarAlmacenUsuarios)
-    .then(renderRoleUI)
-    .catch(function (err) {
-      showStatus('No se pudo registrar: ' + describeError(err));
-    })
-    .then(function () {
-      setLoading(false);
-    });
-}
-
-function dejarDeSerAlmacen() {
-  // Busca por userId (autoregistro) o por nombre (precargado a mano/por
-  // coincidencia automática), lo que haya hecho match.
-  var doc = almacenUsuarios.filter(function (d) {
-    return (
-      (CURRENT_USER.id && d.content.userId === CURRENT_USER.id) ||
-      normalizarTexto(d.content.nombre) === normalizarTexto(CURRENT_USER.label)
-    );
-  })[0];
-  if (!doc) return;
-  setLoading(true);
-  domo
-    .delete(ALMACEN_DOCS_URL + '/' + doc.id)
-    .then(cargarAlmacenUsuarios)
-    .then(renderRoleUI)
-    .catch(function (err) {
-      showStatus('No se pudo actualizar: ' + describeError(err));
-    })
-    .then(function () {
-      setLoading(false);
-    });
 }
 
 // ---------- ALTA ----------
