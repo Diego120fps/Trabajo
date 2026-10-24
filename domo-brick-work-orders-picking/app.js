@@ -373,7 +373,11 @@ function fetchWorkOrdersAbiertas() {
     return rows.filter(function (r) {
       var estatus = Number(r[FIELD_WO_ESTATUS]);
       var cantidad = cantidadPendiente(r);
-      return estatus >= WO_ESTATUS_ABIERTO_MIN && estatus <= WO_ESTATUS_ABIERTO_MAX && cantidad > 0;
+      return (
+        estatus >= WO_ESTATUS_ABIERTO_MIN && estatus <= WO_ESTATUS_ABIERTO_MAX &&
+        cantidad > 0 &&
+        fechaInicioHastaHoy(r)
+      );
     });
   });
 }
@@ -384,6 +388,18 @@ function cantidadPendiente(wo) {
   var ordenada = Number(wo[FIELD_WO_QTY_ORDERED]) || 0;
   var completada = Number(wo[FIELD_WO_QTY_COMPLETED]) || 0;
   return ordenada - completada;
+}
+
+// Solo WO cuya fecha de inicio ya llegó (<= hoy, comparando hasta el final
+// del día de hoy para no perder las que arrancan hoy mismo). Si
+// WO_DATE_START no se pudo interpretar como fecha, no se descarta por
+// esto (mejor mostrarla que ocultarla por un parseo raro).
+function fechaInicioHastaHoy(wo) {
+  var fecha = new Date(wo[FIELD_WO_DATE_START]);
+  if (isNaN(fecha.getTime())) return true;
+  var finDeHoy = new Date();
+  finDeHoy.setHours(23, 59, 59, 999);
+  return fecha <= finDeHoy;
 }
 
 // Trae el BOM completo (ya viene filtrado por branch del lado de DOMO, no
