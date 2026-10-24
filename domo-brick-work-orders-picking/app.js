@@ -310,7 +310,14 @@ function renderRoleUI() {
 }
 
 // ---------- Fuente de datos: Work Orders abiertas + BOM + tracking ----------
+var cargando = false; // evita que el timer de 60s dispare una corrida nueva encima de una que sigue en curso
+
 function cargarTodo() {
+  if (cargando) {
+    console.log('cargarTodo() sigue en curso, se omite esta llamada (probablemente el timer de 60s).');
+    return Promise.resolve();
+  }
+  cargando = true;
   setLoading(true);
   showStatus('');
   return fetchWorkOrdersAbiertas()
@@ -338,6 +345,7 @@ function cargarTodo() {
       showStatus('No se pudo cargar: ' + describeError(err));
     })
     .then(function () {
+      cargando = false;
       setLoading(false);
     });
 }
