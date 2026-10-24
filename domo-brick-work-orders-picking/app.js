@@ -50,7 +50,7 @@ var WO_LIMIT = 5000;
 // prima) hacen falta por cada Finished Good, y en qué proporción. Ya
 // viene filtrado por branch del lado de DOMO -- no tiene columna de branch.
 // ============================================================
-var FIELD_BOM_FG_ITEM = 'FINISHED_GOOD_ITEM_NUMBER';    // FG: se junta con FIELD_WO_ITEM
+var FIELD_BOM_FG_ITEM = 'FINISHED_GOOD';    // FG: se junta con FIELD_WO_ITEM
 var FIELD_BOM_COMPONENT_ITEM = 'COMPONENT_ITEM_NUMBER'; // Componente que hay que surtir
 var FIELD_BOM_COMPONENT_QTY = 'COMPONENT_QUANTITY';     // Factor de uso: se multiplica x la cantidad pendiente de la WO
 var BOM_LIMIT = 5000;
