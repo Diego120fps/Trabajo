@@ -43,7 +43,7 @@ var FIELD_WO_ESTATUS = 'WO_STATUS_CODE';                      // Campo de estatu
 // "Abierta" = WO_STATUS_CODE entre estos dos valores (inclusive).
 var WO_ESTATUS_ABIERTO_MIN = 40;
 var WO_ESTATUS_ABIERTO_MAX = 80;
-var WO_LIMIT = 5000;
+var WO_LIMIT = 50000; // antes 5000, se veia truncado exacto en ese numero
 
 // ============================================================
 // Field IDs del dataset de BOM (dataset 2): qué componentes (materia
@@ -53,7 +53,7 @@ var WO_LIMIT = 5000;
 var FIELD_BOM_FG_ITEM = 'FINISHED_GOOD';    // FG: se junta con FIELD_WO_ITEM
 var FIELD_BOM_COMPONENT_ITEM = 'COMPONENT_ITEM_NUMBER'; // Componente que hay que surtir
 var FIELD_BOM_COMPONENT_QTY = 'COMPONENT_QUANTITY';     // Factor de uso: se multiplica x la cantidad pendiente de la WO
-var BOM_LIMIT = 5000;
+var BOM_LIMIT = 50000; // antes 5000, se veia truncado exacto en ese numero
 
 // ============================================================
 // AppDB: tracking de Asignar/Release por componente x Work Order (no por
@@ -64,6 +64,10 @@ var BOM_LIMIT = 5000;
 // ============================================================
 var TRACKING_COLLECTION = 'work_order_picking';
 var TRACKING_DOCS_URL = '/domo/datastores/v1/collections/' + TRACKING_COLLECTION + '/documents';
+// Cuántos documentos de tracking se crean en paralelo a la vez (ver
+// ejecutarEnLotes/crearTrackingFaltante): disparar miles de peticiones de
+// golpe revienta el navegador con ERR_INSUFFICIENT_RESOURCES.
+var TRACKING_BATCH_SIZE = 20;
 
 // Lista blanca de quién puede Asignar/Release, propia de este proyecto
 // (Calle2), dada de alta a mano por el administrador en AppDB -- no hay
@@ -476,7 +480,13 @@ function crearTrackingFaltante(pendientes, trackingDocs) {
 
   if (faltantes.length === 0) return Promise.resolve(trackingDocs);
 
-  var creaciones = faltantes.map(function (p) {
+  console.log('Creando tracking para ' + faltantes.length + ' componente(s) nuevo(s), en lotes de ' + TRACKING_BATCH_SIZE + '...');
+
+  // En lotes, NO todo con un solo Promise.all: con miles de componentes
+  // nuevos de golpe (primer arranque con muchas WO/BOM), disparar todas
+  // las peticiones a la vez tronaba el navegador con
+  // ERR_INSUFFICIENT_RESOURCES ("Network Error").
+  return ejecutarEnLotes(faltantes, TRACKING_BATCH_SIZE, function (p) {
     return domo.post(TRACKING_DOCS_URL, {
       content: {
         woNumber: p.woNumber,
@@ -485,9 +495,7 @@ function crearTrackingFaltante(pendientes, trackingDocs) {
         estatus: 0
       }
     });
-  });
-
-  return Promise.all(creaciones).then(function () {
+  }).then(function () {
     return fetchTracking();
   });
 }
@@ -1124,6 +1132,26 @@ function buildSemaforoCell(c) {
 }
 
 // ---------- Helpers ----------
+// Corre fn(item) sobre items en lotes de tamanoLote (en paralelo dentro de
+// cada lote, lotes en serie), en vez de lanzar todo con un solo
+// Promise.all -- con miles de items eso agota los recursos del navegador.
+function ejecutarEnLotes(items, tamanoLote, fn) {
+  var resultados = [];
+  var index = 0;
+
+  function siguienteLote() {
+    if (index >= items.length) return Promise.resolve(resultados);
+    var lote = items.slice(index, index + tamanoLote);
+    index += tamanoLote;
+    return Promise.all(lote.map(fn)).then(function (res) {
+      resultados = resultados.concat(res);
+      return siguienteLote();
+    });
+  }
+
+  return siguienteLote();
+}
+
 function cell(text, cls) {
   var td = document.createElement('td');
   if (cls) td.className = cls;
