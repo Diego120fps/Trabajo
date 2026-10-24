@@ -47,10 +47,10 @@ var WO_LIMIT = 5000;
 
 // ============================================================
 // Field IDs del dataset de BOM (dataset 2): qué componentes (materia
-// prima) hacen falta por cada Finished Good, y en qué proporción.
+// prima) hacen falta por cada Finished Good, y en qué proporción. Ya
+// viene filtrado por branch del lado de DOMO -- no tiene columna de branch.
 // ============================================================
-var FIELD_BOM_FG_ITEM = 'FINISHED_GOOD_ITEM_NUMBER';   // FG: se junta con FIELD_WO_ITEM
-var FIELD_BOM_BRANCH = 'COMPONENT_ITEM_BRANCH';        // Branch: se junta con FIELD_WO_BRANCH_PLANT
+var FIELD_BOM_FG_ITEM = 'FINISHED_GOOD_ITEM_NUMBER';    // FG: se junta con FIELD_WO_ITEM
 var FIELD_BOM_COMPONENT_ITEM = 'COMPONENT_ITEM_NUMBER'; // Componente que hay que surtir
 var FIELD_BOM_COMPONENT_QTY = 'COMPONENT_QUANTITY';     // Factor de uso: se multiplica x la cantidad pendiente de la WO
 var BOM_LIMIT = 5000;
@@ -382,33 +382,32 @@ function cantidadPendiente(wo) {
   return ordenada - completada;
 }
 
-// Trae el BOM de los Branch/Plant de BRANCH_CODES (mismo patrón que Work
-// Orders/Inventario: una consulta por código).
+// Trae el BOM completo (ya viene filtrado por branch del lado de DOMO, no
+// hace falta filtrarlo aquí -- de hecho COMPONENT_ITEM_BRANCH ni existe en
+// este dataset, por eso filtrar por ese campo daba 400).
 function fetchBom() {
   if (!bomDatasetId) {
     showStatus('Selecciona el dataset de BOM en el brick (esquina inferior izquierda, dataset 2).');
     return Promise.resolve([]);
   }
 
-  var fields = [FIELD_BOM_FG_ITEM, FIELD_BOM_BRANCH, FIELD_BOM_COMPONENT_ITEM, FIELD_BOM_COMPONENT_QTY];
-  var queries = BRANCH_CODES.map(function (branchCode) {
-    var filter = buildFieldFilter(FIELD_BOM_BRANCH, branchCode);
-    var query =
-      '/data/v1/' + bomDatasetId +
-      '?fields=' + fields.join() +
-      '&filter=' + filter +
-      '&limit=' + BOM_LIMIT;
-    console.log('Query BOM (Branch ' + branchCode + '):', query);
-    return domo.get(query).catch(function (err) {
-      logFetchError('Error en query BOM (Branch ' + branchCode + ')', err);
-      throw err;
-    });
-  });
+  var fields = [FIELD_BOM_FG_ITEM, FIELD_BOM_COMPONENT_ITEM, FIELD_BOM_COMPONENT_QTY];
+  var query =
+    '/data/v1/' + bomDatasetId +
+    '?fields=' + fields.join() +
+    '&limit=' + BOM_LIMIT;
+  console.log('Query BOM:', query);
 
-  return Promise.all(queries).then(function (results) {
-    console.log('Respuesta BOM (por Branch):', results);
-    return [].concat.apply([], results.map(function (r) { return r || []; }));
-  });
+  return domo
+    .get(query)
+    .catch(function (err) {
+      logFetchError('Error en query BOM', err);
+      throw err;
+    })
+    .then(function (rows) {
+      console.log('Respuesta BOM:', rows);
+      return rows || [];
+    });
 }
 
 // Por cada WO abierta, junta sus componentes de BOM (por FINISHED_GOOD_ITEM_NUMBER
