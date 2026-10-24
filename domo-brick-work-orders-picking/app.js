@@ -1153,12 +1153,12 @@ function formatTiempoRespuesta(c) {
 function describeError(err) {
   if (!err) return 'Error desconocido';
   if (typeof err === 'string') return err;
-  // Un Response de fetch (lo que regresa domo.get/post cuando el HTTP
-  // falla) no serializa nada útil con JSON.stringify -- por eso antes
-  // esto se veía como "{}". status/statusText sí son accesibles directo.
-  if (err.status || err.statusText) {
-    return 'HTTP ' + (err.status || '?') + ' ' + (err.statusText || '') +
-      ' (revisa la consola del navegador: ahí queda el detalle de la query y, si se pudo leer, el cuerpo de la respuesta)';
+  // domo.js usa XMLHttpRequest internamente (no fetch): el detalle real
+  // suele venir en responseText, no en err.message ni al hacer
+  // JSON.stringify (por eso antes esto se veía como "{}").
+  if (err.status || err.statusText || typeof err.responseText === 'string') {
+    var detalle = err.responseText ? ' - ' + err.responseText : '';
+    return 'HTTP ' + (err.status || '?') + ' ' + (err.statusText || '') + detalle;
   }
   if (err.message) return err.message;
   try {
@@ -1169,10 +1169,16 @@ function describeError(err) {
   }
 }
 
-// Loguea el error crudo y, si es un Response de fetch, intenta leer su
-// cuerpo (suele traer el motivo real del 400/404/500 de la Data API).
+// Loguea el error crudo. Si viene de XMLHttpRequest (como domo.js), el
+// detalle real suele estar en responseText; si viniera de un fetch
+// Response, se intenta leer con .text(). Cualquiera de los dos suele
+// traer el motivo real del 400/404/500 de la Data API (ej. field id
+// inexistente).
 function logFetchError(etiqueta, err) {
   console.error(etiqueta, err);
+  if (err && typeof err.responseText === 'string' && err.responseText) {
+    console.error(etiqueta + ' - responseText:', err.responseText);
+  }
   if (err && typeof err.text === 'function') {
     err.text()
       .then(function (body) {
