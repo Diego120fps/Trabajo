@@ -44,6 +44,10 @@ var FIELD_WO_ESTATUS = 'WO_STATUS_CODE';                      // Campo de estatu
 var WO_ESTATUS_ABIERTO_MIN = 40;
 var WO_ESTATUS_ABIERTO_MAX = 80;
 var WO_LIMIT = 50000; // antes 5000, se veia truncado exacto en ese numero
+// Tope de cuántas WO abiertas se procesan (las más nuevas por
+// WO_DATE_START). Con muchas WO, expandir a componentes y crear su
+// tracking en AppDB se vuelve lento; esto acota el trabajo por corrida.
+var WO_TOP_N = 100;
 
 // ============================================================
 // Field IDs del dataset de BOM (dataset 2): qué componentes (materia
@@ -370,7 +374,7 @@ function fetchWorkOrdersAbiertas() {
   return Promise.all(queries).then(function (results) {
     console.log('Respuesta Work Orders (por Branch/Plant):', results);
     var rows = [].concat.apply([], results.map(function (r) { return r || []; }));
-    return rows.filter(function (r) {
+    var abiertas = rows.filter(function (r) {
       var estatus = Number(r[FIELD_WO_ESTATUS]);
       var cantidad = cantidadPendiente(r);
       return (
@@ -379,6 +383,13 @@ function fetchWorkOrdersAbiertas() {
         fechaInicioHastaHoy(r)
       );
     });
+
+    // Solo las WO_TOP_N más nuevas por WO_DATE_START, para no procesar
+    // (y crear tracking de) miles de WO en cada corrida.
+    abiertas.sort(function (a, b) {
+      return new Date(b[FIELD_WO_DATE_START]) - new Date(a[FIELD_WO_DATE_START]);
+    });
+    return abiertas.slice(0, WO_TOP_N);
   });
 }
 
