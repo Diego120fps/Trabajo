@@ -74,8 +74,19 @@ var TABLE_SORT_ORDER = ['Morado', 'Rojo', 'Amarillo', 'Verde', 'SinInv', 'SinDem
 var TABLE_SORT_RANK = {};
 TABLE_SORT_ORDER.forEach(function (key, idx) { TABLE_SORT_RANK[key] = idx; });
 
-var PAGE_SIZE = 5000;
-var MAX_PAGES = 500; // tope de seguridad: hasta 2.5M filas filtradas
+// Páginas más chicas = respuesta más chica por request. domo.get() pasa los
+// datos del sandbox del brick a la página por un canal interno con límite
+// de tamaño; con páginas de 5000 filas se vio fallar con un error genérico
+// ("f.onload ... message: ''") que no viene de este código sino del SDK
+// de Domo. 1000 es más seguro sin disparar demasiado el número de requests.
+var PAGE_SIZE = 1000;
+var MAX_PAGES = 2500; // tope de seguridad: hasta 2.5M filas filtradas
+
+// Reintentos automáticos por página antes de rendirse: ese mismo error
+// genérico del SDK de Domo ha resultado ser intermitente (recargar el brick
+// a veces basta para que la siguiente carga funcione).
+var RETRY_MAX_ATTEMPTS = 3;
+var RETRY_DELAY_MS = 1500;
 
 var cardsEl = document.getElementById('cards');
 var statusMsg = document.getElementById('statusMsg');
@@ -355,7 +366,8 @@ function fetchAllFilteredRows(filter, onDone, onError) {
   var offset = 0;
   var page = 0;
 
-  function fetchPage() {
+  function fetchPage(attempt) {
+    attempt = attempt || 1;
     page += 1;
     if (page > MAX_PAGES) {
       onError(new Error('Se alcanzó el máximo de páginas (' + MAX_PAGES + ') sin terminar de leer los datos.'));
@@ -369,7 +381,7 @@ function fetchAllFilteredRows(filter, onDone, onError) {
       '&limit=' + PAGE_SIZE +
       '&offset=' + offset;
 
-    console.log('Query Semáforo (página ' + page + ', offset ' + offset + '):', query);
+    console.log('Query Semáforo (página ' + page + ', intento ' + attempt + ', offset ' + offset + '):', query);
     setStatus('Cargando registros... (' + collected.length + ' hasta ahora)');
 
     domo.get(query)
@@ -383,10 +395,19 @@ function fetchAllFilteredRows(filter, onDone, onError) {
           onDone(collected);
         } else {
           offset += PAGE_SIZE;
-          fetchPage();
+          fetchPage(1);
         }
       })
-      .catch(onError);
+      .catch(function (err) {
+        if (attempt < RETRY_MAX_ATTEMPTS) {
+          logError('Fallo en página ' + page + ' (intento ' + attempt + ' de ' + RETRY_MAX_ATTEMPTS + '), reintentando', err);
+          page -= 1; // no cuenta como una página nueva al reintentar
+          setStatus('La carga falló, reintentando... (' + collected.length + ' registros hasta ahora)');
+          setTimeout(function () { fetchPage(attempt + 1); }, RETRY_DELAY_MS);
+        } else {
+          onError(err);
+        }
+      });
   }
 
   fetchPage();
