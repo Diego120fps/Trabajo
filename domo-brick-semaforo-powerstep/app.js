@@ -120,9 +120,16 @@ function loadAndRender() {
   ]);
 
   fetchAllFilteredRows(filter, function (rows) {
+    // Filtro de seguridad en el navegador: aunque el filtro ya se manda al
+    // servidor arriba, esto asegura que solo quede Powerstep aunque el
+    // dataset tenga espacios extra o diferencias de mayúsculas/minúsculas.
+    var soloPowerstep = rows.filter(function (row) {
+      return matchesCategoryParent(row, FILTER_CATEGORY_PARENT);
+    });
+
     // Solo entran a tarjetas y tabla las filas con un Semáforo calculable
     // (ON_HAND y Minimo numéricos, o Sin Demanda / Sin Inv).
-    var withSemaforo = rows.filter(function (row) {
+    var withSemaforo = soloPowerstep.filter(function (row) {
       return calcSemaforo(row) !== null;
     });
 
@@ -151,6 +158,14 @@ function loadAndRender() {
     setStatus('No se pudo cargar la información. ' + describeError(err));
     showLoading(false);
   });
+}
+
+// true si CategoryParent coincide con el valor esperado, ignorando espacios
+// al inicio/final y mayúsculas/minúsculas.
+function matchesCategoryParent(row, expected) {
+  var value = row[FIELD_CATEGORY_PARENT];
+  if (value === null || value === undefined) return false;
+  return String(value).trim().toLowerCase() === expected.trim().toLowerCase();
 }
 
 // Calcula "%" según el CASE:
