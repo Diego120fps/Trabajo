@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Almacén por Rack</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div id="warehouse"></div>
+
+  <!-- Modal con el detalle de inventario de la localidad seleccionada -->
+  <div id="detailModal" class="modal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="modalTitle"></span>
+        <button id="modalClose" class="modal-close" title="Cerrar">&times;</button>
+      </div>
+      <div id="modalBody" class="modal-body"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
