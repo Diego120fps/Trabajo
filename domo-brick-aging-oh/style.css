@@ -1,0 +1,95 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Proxima Nova", "Segoe UI", Roboto, Arial, sans-serif;
+  font-size: 13px;
+  color: #2c2c2c;
+  background: #ffffff;
+}
+
+.brick-container {
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  height: 100%;
+  overflow: auto;
+}
+
+.buckets-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+
+.bucket {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 380px;
+  min-width: 340px;
+}
+
+.bucket h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: #2c2c2c;
+}
+
+.bucket table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.bucket th,
+.bucket td {
+  border: 1px solid #2c2c2c;
+  padding: 4px 6px;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bucket th {
+  font-weight: 700;
+  background: #ffffff;
+}
+
+.bucket td.items {
+  color: #7a7a7a;
+}
+
+.bucket td.row-label {
+  text-align: left;
+}
+
+/* Celdas USD: "$" a la izquierda y el monto a la derecha, como en Excel */
+.bucket td.usd {
+  display: table-cell;
+}
+
+.bucket td.usd .money {
+  display: flex;
+  justify-content: space-between;
+}
+
+.status-msg {
+  font-size: 12px;
+  color: #7a7a7a;
+  min-height: 16px;
+}
+
+.status-msg.error {
+  color: #c0392b;
+}
+
+.loading {
+  font-size: 12px;
+  color: #99ccee;
+}
