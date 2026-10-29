@@ -16,12 +16,13 @@ var FIELD_UPDATED_DATE = 'ITEM_UPDATED_DATE';  // Base para calcular el aging
 
 // Buckets de aging: días transcurridos de ITEM_UPDATED_DATE a hoy.
 // max = null significa "sin límite superior".
+// color = variante de la card en style.css (card-green, card-yellow, ...).
 var BUCKETS = [
-  { label: '0 - 2 Days', min: 0, max: 2 },
-  { label: '3 - 5 Days', min: 3, max: 5 },
-  { label: '> 5 Days', min: 6, max: null }
+  { label: '0 – 2 Days', min: 0, max: 2, color: 'green' },
+  { label: '3 – 5 Days', min: 3, max: 5, color: 'yellow' },
+  { label: '> 5 Days', min: 6, max: null, color: 'red' }
 ];
-var SUMMARY_LABEL = 'Summary';
+var SUMMARY = { label: 'Summary', color: 'blue' };
 
 // Igual que en el brick de pivote: se traen las filas en páginas con un
 // orderby fijo y se agrega en el navegador, para no depender del groupby
@@ -209,46 +210,35 @@ function toNumber(value) {
 function renderAll(totals) {
   bucketsRow.innerHTML = '';
   BUCKETS.forEach(function (b, i) {
-    bucketsRow.appendChild(renderBucket(b.label, totals.buckets[i]));
+    bucketsRow.appendChild(renderCard(b, totals.buckets[i]));
   });
-  bucketsRow.appendChild(renderBucket(SUMMARY_LABEL, totals.summary));
+  bucketsRow.appendChild(renderCard(SUMMARY, totals.summary));
 }
 
-function renderBucket(title, t) {
-  var wrapper = document.createElement('div');
-  wrapper.className = 'bucket';
+// Card: encabezado de color con el nombre del bucket y, abajo, una métrica
+// por columna (unidades en grande y su monto USD en chico).
+function renderCard(bucket, t) {
+  var card = document.createElement('div');
+  card.className = 'card card-' + bucket.color;
 
-  var h3 = document.createElement('h3');
-  h3.textContent = title;
-  wrapper.appendChild(h3);
+  card.innerHTML =
+    '<div class="card-header">' + bucket.label + '</div>' +
+    '<div class="card-body">' +
+      metric('# Items', Object.keys(t.items).length, null) +
+      metric('OH', t.ohQty, t.ohUsd) +
+      metric('C/Orden', t.conOrdenQty, t.conOrdenUsd) +
+      metric('S/Orden', t.sinOrdenQty, t.sinOrdenUsd) +
+    '</div>';
 
-  var table = document.createElement('table');
-  table.innerHTML =
-    '<colgroup><col style="width:22%"><col style="width:26%"><col style="width:26%"><col style="width:26%"></colgroup>' +
-    '<thead><tr>' +
-      '<th>ITEMS</th><th>OH</th><th>C/ORDEN</th><th>S/ORDEN</th>' +
-    '</tr></thead>' +
-    '<tbody>' +
-      '<tr>' +
-        '<td class="items">' + formatNumber(Object.keys(t.items).length) + '</td>' +
-        '<td>' + formatNumber(t.ohQty) + '</td>' +
-        '<td>' + formatNumber(t.conOrdenQty) + '</td>' +
-        '<td>' + formatNumber(t.sinOrdenQty) + '</td>' +
-      '</tr>' +
-      '<tr>' +
-        '<td class="row-label">USD</td>' +
-        usdCell(t.ohUsd) +
-        usdCell(t.conOrdenUsd) +
-        usdCell(t.sinOrdenUsd) +
-      '</tr>' +
-    '</tbody>';
-  wrapper.appendChild(table);
-
-  return wrapper;
+  return card;
 }
 
-function usdCell(value) {
-  return '<td class="usd"><span class="money"><span>$</span><span>' + formatNumber(value) + '</span></span></td>';
+function metric(label, qty, usd) {
+  return '<div class="metric">' +
+    '<div class="metric-label">' + label + '</div>' +
+    '<div class="metric-value">' + formatNumber(qty) + '</div>' +
+    '<div class="metric-usd">' + (usd === null ? '&nbsp;' : '$' + formatNumber(usd)) + '</div>' +
+  '</div>';
 }
 
 function formatNumber(value) {
