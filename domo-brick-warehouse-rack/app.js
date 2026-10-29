@@ -4,6 +4,7 @@ var datasets = window.datasets;
 // dataset0 = localidades del almacén (Rack, Nivel, Posicion, Localidad, Color, Material)
 // dataset1 = detalle del inventario por localidad
 var DETAIL_FIELDS = {
+    plant: 'Planta',
     location: 'ILOC_LOCATION',
     item: 'ITEM_NUMBER',
     uom: 'ITEM_UOM_PRIMARY',
@@ -11,7 +12,7 @@ var DETAIL_FIELDS = {
     oh: 'ILOC_QTY_ON_HAND'
 };
 
-// Detalle ya consultado por localidad, para no volver a pedirlo en cada clic
+// Detalle ya consultado por planta+localidad, para no volver a pedirlo en cada clic
 let detailCache = {};
 
 domo.get(`/data/v1/${datasets[0]}`)
@@ -72,12 +73,15 @@ function drawWarehouse(data){
             currentLevel=r.Nivel;
         }
 
-      // data-location guarda la localidad para saber cuál se consultó al dar clic
+      // data-plant + data-location guardan qué localidad (y de qué planta)
+      // se consultó al dar clic: la misma localidad puede existir en varias plantas
       html += `
 <div class="cell"
+     data-plant="${escapeHtml(r.Planta)}"
      data-location="${escapeHtml(r.Localidad)}"
      style="background:${r.Color}"
-     title="Localidad: ${escapeHtml(r.Localidad)}
+     title="Planta: ${escapeHtml(r.Planta)}
+Localidad: ${escapeHtml(r.Localidad)}
 Materiales: ${escapeHtml(r.Material)}">
 </div>`;
     });
@@ -95,23 +99,29 @@ Materiales: ${escapeHtml(r.Material)}">
 document.getElementById("warehouse").addEventListener("click", e=>{
     const cell = e.target.closest(".cell");
     if(!cell) return;
-    showLocationDetail(cell.dataset.location);
+    showLocationDetail(cell.dataset.plant, cell.dataset.location);
 });
 
-function showLocationDetail(location){
+function showLocationDetail(plant, location){
 
-    openModal(location);
+    const cacheKey = plant + "||" + location;
+
+    openModal(plant, location);
     setModalBody(`<div class="modal-msg">Cargando...</div>`);
 
-    if(detailCache[location]){
-        renderDetail(detailCache[location]);
+    if(detailCache[cacheKey]){
+        renderDetail(detailCache[cacheKey]);
         return;
     }
 
-    domo.get(buildDetailQuery(location))
+    domo.get(buildDetailQuery(plant, location))
         .then(rows=>{
-            detailCache[location] = rows || [];
-            renderDetail(detailCache[location]);
+            // Por seguridad se vuelve a validar planta y localidad en el navegador
+            detailCache[cacheKey] = (rows || []).filter(r=>
+                sameValue(r[DETAIL_FIELDS.plant], plant) &&
+                sameValue(r[DETAIL_FIELDS.location], location)
+            );
+            renderDetail(detailCache[cacheKey]);
         })
         .catch(err=>{
             console.error("Error al cargar detalle de " + location, err);
@@ -119,12 +129,13 @@ function showLocationDetail(location){
         });
 }
 
-function buildDetailQuery(location){
+// Filtra por planta Y localidad (en la Data API, filtros separados por coma se combinan con AND)
+function buildDetailQuery(plant, location){
     const f = DETAIL_FIELDS;
-    const filter = `${f.location}='${String(location).trim().replace(/'/g, "''")}'`;
+    const filter = buildFieldFilter(f.plant, plant) + "," + buildFieldFilter(f.location, location);
 
     return `/data/v1/${datasets[1]}` +
-        `?fields=${[f.item, f.uom, f.family, f.oh].join()}` +
+        `?fields=${[f.plant, f.location, f.item, f.uom, f.family, f.oh].join()}` +
         `&filter=${encodeURIComponent(filter)}` +
         `&orderby=${f.item}` +
         `&limit=10000`;
@@ -203,8 +214,8 @@ function initModal(){
     });
 }
 
-function openModal(location){
-    document.getElementById("modalTitle").textContent = "Localidad: " + location;
+function openModal(plant, location){
+    document.getElementById("modalTitle").textContent = "Planta: " + plant + "  ·  Localidad: " + location;
     document.getElementById("detailModal").classList.add("open");
 }
 
@@ -217,6 +228,15 @@ function setModalBody(html){
 }
 
 // ---------- Utilidades ----------
+
+function buildFieldFilter(field, value){
+    return `${field}='${String(value).trim().replace(/'/g, "''")}'`;
+}
+
+// Compara sin espacios de relleno y sin importar si viene como número o texto
+function sameValue(a, b){
+    return String(a == null ? "" : a).trim() == String(b == null ? "" : b).trim();
+}
 
 function formatNumber(value){
     return Number(value).toLocaleString("en-US", { maximumFractionDigits: 2 });
