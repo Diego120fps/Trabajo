@@ -9,6 +9,8 @@ var SOL_COLLECTION='mro_solicitudes';
 var USR_COLLECTION='mro_usuarios';
 // Moneda del costo unitario y del valor del inventario.
 var MONEDA='USD';
+// Plantas disponibles.
+var PLANTAS=['AMP','PLATAFORMA','CALLE2'];
 var DOCS=function(c){return '/domo/datastores/v1/collections/'+c+'/documents';};
 var CAT_URL=DOCS(CAT_COLLECTION), MOV_URL=DOCS(MOV_COLLECTION), SOL_URL=DOCS(SOL_COLLECTION), USR_URL=DOCS(USR_COLLECTION);
 var REFRESH_MS=300000, PAGE=1000;
@@ -86,6 +88,11 @@ function init(){
   // Modal
   $('motivoCerrar').onclick=cerrarModal;
 
+  llenarPlantas();
+  ['filtroPlantaInv'].forEach(function(id){$(id).addEventListener('input',renderInventario);});
+  $('filtroPlantaSol').addEventListener('input',renderSolicitudes);
+  $('filtroPlantaEnt').addEventListener('input',renderEntregas);
+  $('filtroPlantaCat').addEventListener('input',renderCatalogo);
   $('catCostoLabel').textContent='Costo unitario ('+MONEDA+')';
   aplicarPermisos();
   renderMovForm();
@@ -143,10 +150,10 @@ function ensureOneCollection(name,columns){
 function cols(spec){return spec.split(',').map(function(p){var x=p.split(':');return {name:x[0].trim(),type:x[1]||'STRING'};});}
 function ensureCollections(){
   return Promise.all([
-    ensureOneCollection(CAT_COLLECTION,cols('codigo,descripcion,categoria,proveedorNum,proveedor,leadTimeDias:LONG,unidad,ubicacion,aplicaMinMax,minimo:DOUBLE,maximo:DOUBLE,stockInicial:DOUBLE,costoUnitario:DOUBLE,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
-    ensureOneCollection(MOV_COLLECTION,cols('fechaHora,tipo,codigo,descripcion,cantidad:DOUBLE,efecto:DOUBLE,costoUnitario:DOUBLE,valor:DOUBLE,stockAnterior:DOUBLE,stockResultante:DOUBLE,referencia,persona,notas,folioSolicitud:LONG,usuario,usuarioId')),
+    ensureOneCollection(CAT_COLLECTION,cols('codigo,descripcion,planta,categoria,proveedorNum,proveedor,leadTimeDias:LONG,unidad,ubicacion,aplicaMinMax,minimo:DOUBLE,maximo:DOUBLE,stockInicial:DOUBLE,costoUnitario:DOUBLE,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
+    ensureOneCollection(MOV_COLLECTION,cols('fechaHora,tipo,codigo,descripcion,cantidad:DOUBLE,efecto:DOUBLE,costoUnitario:DOUBLE,valor:DOUBLE,stockAnterior:DOUBLE,stockResultante:DOUBLE,planta,referencia,persona,notas,folioSolicitud:LONG,usuario,usuarioId')),
     ensureOneCollection(USR_COLLECTION,cols('userId,nombre,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
-    ensureOneCollection(SOL_COLLECTION,cols('folio:LONG,linea:LONG,fechaSolicitud,solicitante,solicitanteId,area,comentario,codigo,descripcion,unidad,cantidadSolicitada:DOUBLE,estatus,cantidadEntregada:DOUBLE,entregadoPor,entregadoPorId,recibe,fechaEntrega,motivo,fechaCierre,usuarioCierre,usuarioCierreId'))
+    ensureOneCollection(SOL_COLLECTION,cols('folio:LONG,linea:LONG,fechaSolicitud,solicitante,solicitanteId,planta,area,comentario,codigo,descripcion,unidad,cantidadSolicitada:DOUBLE,estatus,cantidadEntregada:DOUBLE,entregadoPor,entregadoPorId,recibe,fechaEntrega,motivo,fechaCierre,usuarioCierre,usuarioCierreId'))
   ]);
 }
 // Lee todos los documentos de una colección en páginas.
@@ -268,7 +275,7 @@ function renderListas(){
 // ================= Inventario =================
 function invFiltrado(){
   var q=$('buscarInv').value.toLowerCase(),cat=$('filtroCategoriaInv').value,est=$('filtroEstadoInv').value;
-  return activos().filter(function(d){
+  return activosPlanta().filter(function(d){
     var m=d.content,e=infoDe(m.codigo).estado;
     if(cat&&m.categoria!==cat)return false;
     if(est==='reorden'?(e!=='sin'&&e!=='min'):(est&&e!==est))return false;
@@ -278,19 +285,23 @@ function invFiltrado(){
 }
 var ORDEN_ESTADO={sin:0,min:1,max:2,ok:3,na:4};
 function ordenEstado(d){return ORDEN_ESTADO[infoDe(d.content.codigo).estado];}
+// Materiales activos de la planta seleccionada en Inventario (los KPIs también siguen este filtro).
+function activosPlanta(){var p=$('filtroPlantaInv').value;return activos().filter(function(d){return !p||d.content.planta===p;});}
 function renderInventario(){
-  var act=activos(),cuenta={sin:0,min:0,max:0};
+  var act=activosPlanta(),cuenta={sin:0,min:0,max:0};
   act.forEach(function(d){var e=infoDe(d.content.codigo).estado;if(cuenta[e]!==undefined)cuenta[e]++;});
   $('kpiActivos').textContent=act.length;$('kpiSinStock').textContent=cuenta.sin;$('kpiMinimo').textContent=cuenta.min;$('kpiSobreMax').textContent=cuenta.max;
   var valor=act.reduce(function(a,d){var s=infoDe(d.content.codigo).stock;return a+(s>0?s*num(d.content.costoUnitario):0);},0);
   $('kpiValor').textContent=fmtMoney(valor);$('kpiValorLabel').textContent='Valor del inventario ('+MONEDA+')';
-  $('kpiPendientes').textContent=foliosUnicos(solicitudes.filter(function(d){return d.content.estatus==='Pendiente';})).length;
+  var pf=$('filtroPlantaInv').value;
+  $('kpiPendientes').textContent=foliosUnicos(solicitudes.filter(function(d){return d.content.estatus==='Pendiente'&&(!pf||d.content.planta===pf);})).length;
   var body=$('inventarioTbody');body.innerHTML='';
   var rows=invFiltrado();
-  if(!rows.length){empty(body,17,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Ve a Catálogo para importar el Excel o dar de alta materiales.');return;}
+  if(!rows.length){empty(body,18,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Ve a Catálogo para importar el Excel o dar de alta materiales.');return;}
   rows.forEach(function(d){
     var m=d.content,i=infoDe(m.codigo),tr=document.createElement('tr');
     addPill(tr,ESTADO_TXT[i.estado],'st-'+i.estado);
+    add(tr,m.planta);
     add(tr,m.codigo);add(tr,m.descripcion);add(tr,m.categoria);add(tr,m.proveedor);add(tr,m.ubicacion);add(tr,m.unidad);
     addNum(tr,i.stock);addNum(tr,i.comprometido||'');addNum(tr,i.disponible);
     addNum(tr,aplicaMinMax(m)&&tieneValor(m.minimo)?num(m.minimo):'');
@@ -304,9 +315,9 @@ function renderInventario(){
   });
 }
 function exportarInventario(){
-  var rows=[['Estado','Código','Descripción','Categoría','Proveedor #','Proveedor','Ubicación','Unidad','Stock','Comprometido','Disponible','Mínimo','Máximo','Sugerido a pedir','Costo unitario ('+MONEDA+')','Valor inventario ('+MONEDA+')','Lead time','Último movimiento']];
+  var rows=[['Estado','Planta','Código','Descripción','Categoría','Proveedor #','Proveedor','Ubicación','Unidad','Stock','Comprometido','Disponible','Mínimo','Máximo','Sugerido a pedir','Costo unitario ('+MONEDA+')','Valor inventario ('+MONEDA+')','Lead time','Último movimiento']];
   invFiltrado().forEach(function(d){var m=d.content,i=infoDe(m.codigo);
-    rows.push([ESTADO_TXT[i.estado],m.codigo,m.descripcion,m.categoria,m.proveedorNum,m.proveedor,m.ubicacion,m.unidad,i.stock,i.comprometido,i.disponible,aplicaMinMax(m)?m.minimo:'',aplicaMinMax(m)?m.maximo:'',i.sugerido,tieneValor(m.costoUnitario)?num(m.costoUnitario):'',tieneValor(m.costoUnitario)?Math.max(0,i.stock)*num(m.costoUnitario):'',m.leadTimeDias,fmtDateTime(i.ultimoMov)]);});
+    rows.push([ESTADO_TXT[i.estado],m.planta||'',m.codigo,m.descripcion,m.categoria,m.proveedorNum,m.proveedor,m.ubicacion,m.unidad,i.stock,i.comprometido,i.disponible,aplicaMinMax(m)?m.minimo:'',aplicaMinMax(m)?m.maximo:'',i.sugerido,tieneValor(m.costoUnitario)?num(m.costoUnitario):'',tieneValor(m.costoUnitario)?Math.max(0,i.stock)*num(m.costoUnitario):'',m.leadTimeDias,fmtDateTime(i.ultimoMov)]);});
   descargar('inventario_mro.csv',toCsv(rows),'text/csv');
 }
 
@@ -345,6 +356,8 @@ function renderCarrito(){
 function enviarSolicitud(){
   if(!requireUser())return;
   if(!carrito.length){showError('Agrega al menos un material.');return;}
+  var planta=$('solPlantaInput').value;
+  if(!planta){showError('Selecciona la planta que solicita.');return;}
   var area=$('areaInput').value.trim();
   if(!area){showError('Captura el área / línea que solicita.');return;}
   setBusy(true);clearStatus();
@@ -359,7 +372,7 @@ function enviarSolicitud(){
       var m=matDoc(x.codigo).content;
       chain=chain.then(function(){return domo.post(SOL_URL,{content:{
         folio:folio,linea:idx+1,fechaSolicitud:ahora,
-        solicitante:CURRENT_USER.label,solicitanteId:CURRENT_USER.id,area:area,comentario:comentario,
+        solicitante:CURRENT_USER.label,solicitanteId:CURRENT_USER.id,planta:planta,area:area,comentario:comentario,
         codigo:m.codigo,descripcion:m.descripcion,unidad:m.unidad||'',cantidadSolicitada:x.cantidad,
         estatus:'Pendiente',cantidadEntregada:0,entregadoPor:'',entregadoPorId:'',recibe:'',fechaEntrega:'',
         motivo:'',fechaCierre:'',usuarioCierre:'',usuarioCierreId:''}});});
@@ -374,19 +387,20 @@ function enviarSolicitud(){
 }
 function nextFolio(){var max=0;solicitudes.forEach(function(d){var n=num(d.content.folio);if(n>max)max=n;});return max+1;}
 function renderSolicitudes(){
-  var q=$('buscarSol').value.toLowerCase(),est=$('filtroEstatusSol').value,mias=$('soloMiasSol').checked||!ES_ADMIN,body=$('solicitudesTbody');
+  var q=$('buscarSol').value.toLowerCase(),est=$('filtroEstatusSol').value,mias=$('soloMiasSol').checked||!ES_ADMIN,pSol=$('filtroPlantaSol').value,body=$('solicitudesTbody');
   body.innerHTML='';
   var rows=solicitudes.filter(function(d){
     var c=d.content;
     if(mias&&c.solicitanteId!==CURRENT_USER.id)return false;
     if(est&&c.estatus!==est)return false;
+    if(pSol&&c.planta!==pSol)return false;
     if(q&&[fmtFolio(c.folio),c.codigo,c.descripcion,c.solicitante,c.area].join(' ').toLowerCase().indexOf(q)<0)return false;
     return true;
   }).sort(function(a,b){return num(b.content.folio)-num(a.content.folio)||num(a.content.linea)-num(b.content.linea);});
   if(!rows.length){empty(body,14,'No hay solicitudes para los filtros seleccionados.');return;}
   rows.forEach(function(d){
     var c=d.content,tr=document.createElement('tr');
-    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.area);add(tr,c.codigo);add(tr,c.descripcion);
+    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.planta);add(tr,c.area);add(tr,c.codigo);add(tr,c.descripcion);
     addNum(tr,c.cantidadSolicitada);addNum(tr,c.estatus==='Pendiente'?'':c.cantidadEntregada);
     addPill(tr,c.estatus,'est-'+String(c.estatus).replace(/ /g,'-'));
     add(tr,c.entregadoPor);add(tr,c.recibe);add(tr,fmtDateTime(c.fechaEntrega||c.fechaCierre));
@@ -400,15 +414,15 @@ function renderSolicitudes(){
 
 // ================= Entregas =================
 function renderEntregas(){
-  var q=$('buscarEnt').value.toLowerCase(),body=$('entregasTbody');body.innerHTML='';
+  var q=$('buscarEnt').value.toLowerCase(),pEnt=$('filtroPlantaEnt').value,body=$('entregasTbody');body.innerHTML='';
   var rows=solicitudes.filter(function(d){
     var c=d.content;
-    return c.estatus==='Pendiente'&&(!q||[fmtFolio(c.folio),c.codigo,c.descripcion,c.solicitante,c.area].join(' ').toLowerCase().indexOf(q)>=0);
+    return c.estatus==='Pendiente'&&(!pEnt||c.planta===pEnt)&&(!q||[fmtFolio(c.folio),c.codigo,c.descripcion,c.solicitante,c.area].join(' ').toLowerCase().indexOf(q)>=0);
   }).sort(function(a,b){return num(a.content.folio)-num(b.content.folio)||num(a.content.linea)-num(b.content.linea);});
   if(!rows.length){empty(body,11,'No hay solicitudes pendientes de entregar.');return;}
   rows.forEach(function(d){
     var c=d.content,i=infoDe(c.codigo),tr=document.createElement('tr');
-    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.area);add(tr,c.codigo);add(tr,c.descripcion);
+    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.planta);add(tr,c.area);add(tr,c.codigo);add(tr,c.descripcion);
     addNum(tr,c.cantidadSolicitada);addNum(tr,i.stock);
     var tdC=document.createElement('td'),cant=document.createElement('input');
     cant.type='number';cant.min='0';cant.step='1';cant.value=Math.max(0,Math.min(num(c.cantidadSolicitada),i.stock));
@@ -436,7 +450,7 @@ function entregar(d,cantidad,recibe){
     if(cantidad>stock)throw new Error('Stock insuficiente de '+c.codigo+': hay '+stock+'.');
     var ahora=new Date().toISOString();
     return domo.post(MOV_URL,{content:movimientoDoc('Salida',c.codigo,c.descripcion,cantidad,-cantidad,stock,
-      'Solicitud '+fmtFolio(c.folio),recibe,c.area?('Área: '+c.area):'',num(c.folio),ahora)})
+      'Solicitud '+fmtFolio(c.folio),recibe,c.area?('Área: '+c.area):'',num(c.folio),ahora,c.planta)})
       .then(function(){
         return domo.put(SOL_URL+'/'+d.id,{content:Object.assign({},actual.content,{
           estatus:cantidad<num(c.cantidadSolicitada)?'Entregada parcial':'Entregada',
@@ -461,10 +475,11 @@ function cerrarSolicitud(d,estatus){
 }
 
 // ================= Entradas / Salidas / Ajustes =================
-function movimientoDoc(tipo,codigo,descripcion,cantidad,efecto,stockAnterior,referencia,persona,notas,folio,fecha){
+function movimientoDoc(tipo,codigo,descripcion,cantidad,efecto,stockAnterior,referencia,persona,notas,folio,fecha,planta){
   var md=matDoc(codigo),costo=md?num(md.content.costoUnitario):0;
+  planta=planta||(md&&md.content.planta)||'';
   return {fechaHora:fecha||new Date().toISOString(),tipo:tipo,codigo:codigo,descripcion:descripcion,
-    cantidad:cantidad,efecto:efecto,costoUnitario:costo,valor:Math.round(efecto*costo*100)/100,stockAnterior:stockAnterior,stockResultante:stockAnterior+efecto,
+    cantidad:cantidad,efecto:efecto,costoUnitario:costo,valor:Math.round(efecto*costo*100)/100,stockAnterior:stockAnterior,stockResultante:stockAnterior+efecto,planta:planta,
     referencia:referencia||'',persona:persona||'',notas:notas||'',folioSolicitud:folio||0,
     usuario:CURRENT_USER.label,usuarioId:CURRENT_USER.id};
 }
@@ -555,6 +570,7 @@ function leerCatForm(){
   return {
     codigo:$('catCodigo').value.trim(),
     descripcion:$('catDescripcion').value.trim(),
+    planta:$('catPlanta').value,
     categoria:$('catCategoria').value.trim().toUpperCase(),
     unidad:$('catUnidad').value.trim().toUpperCase(),
     ubicacion:$('catUbicacion').value.trim(),
@@ -571,6 +587,7 @@ function leerCatForm(){
 function validarMaterial(m,idActual){
   if(!m.codigo)return 'Captura el código.';
   if(!m.descripcion)return 'Captura la descripción.';
+  if(!m.planta)return 'Selecciona la planta.';
   var dup=matDoc(m.codigo);
   if(dup&&dup.id!==idActual)return 'El código '+m.codigo+' ya existe en el catálogo ('+dup.content.descripcion+').';
   if(m.aplicaMinMax==='SI'){
@@ -598,14 +615,14 @@ function guardarCatalogo(){
 }
 function limpiarCatForm(){
   editandoCat=null;
-  ['catCodigo','catDescripcion','catCategoria','catUnidad','catUbicacion','catProveedorNum','catProveedor','catLeadTime','catStockInicial','catCostoUnitario','catMinimo','catMaximo'].forEach(function(id){$(id).value='';});
+  ['catCodigo','catDescripcion','catCategoria','catUnidad','catUbicacion','catProveedorNum','catProveedor','catLeadTime','catStockInicial','catCostoUnitario','catMinimo','catMaximo','catPlanta'].forEach(function(id){$(id).value='';});
   $('catAplicaMinMax').checked=false;$('catMinimo').disabled=$('catMaximo').disabled=true;
   $('catCodigo').readOnly=false;$('catStockInicial').disabled=false;
   $('catFormTitle').textContent='Nuevo material';
 }
 function editarCatalogo(d){
   var m=d.content;editandoCat=d;
-  $('catCodigo').value=m.codigo;$('catDescripcion').value=m.descripcion||'';$('catCategoria').value=m.categoria||'';
+  $('catCodigo').value=m.codigo;$('catDescripcion').value=m.descripcion||'';$('catCategoria').value=m.categoria||'';$('catPlanta').value=m.planta||'';
   $('catUnidad').value=m.unidad||'';$('catUbicacion').value=m.ubicacion||'';$('catProveedorNum').value=m.proveedorNum||'';
   $('catProveedor').value=m.proveedor||'';$('catLeadTime').value=m.leadTimeDias||'';$('catStockInicial').value=m.stockInicial||0;$('catCostoUnitario').value=tieneValor(m.costoUnitario)?m.costoUnitario:'';
   $('catAplicaMinMax').checked=aplicaMinMax(m);$('catMinimo').disabled=$('catMaximo').disabled=!aplicaMinMax(m);
@@ -624,19 +641,20 @@ function toggleActivo(d){
     .then(function(){setBusy(false);});
 }
 function renderCatalogo(){
-  var q=$('buscarCat').value.toLowerCase(),cat=$('filtroCategoriaCat').value,inact=$('mostrarInactivosCat').checked,body=$('catalogoTbody');
+  var q=$('buscarCat').value.toLowerCase(),cat=$('filtroCategoriaCat').value,pl=$('filtroPlantaCat').value,inact=$('mostrarInactivosCat').checked,body=$('catalogoTbody');
   body.innerHTML='';
   var rows=catalogo.filter(function(d){
     var m=d.content;
     if(!inact&&m.activo==='NO')return false;
+    if(pl&&m.planta!==pl)return false;
     if(cat&&m.categoria!==cat)return false;
     if(q&&[m.codigo,m.descripcion,m.proveedor,m.proveedorNum,m.ubicacion].join(' ').toLowerCase().indexOf(q)<0)return false;
     return true;
   }).sort(byCodigo);
-  if(!rows.length){empty(body,14,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Usa "Importar catálogo del Excel CONTROL_MRO" o da de alta materiales.');return;}
+  if(!rows.length){empty(body,15,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Usa "Importar catálogo del Excel CONTROL_MRO" o da de alta materiales.');return;}
   rows.forEach(function(d){
     var m=d.content,tr=document.createElement('tr');if(m.activo==='NO')tr.className='inactivo';
-    add(tr,m.codigo);add(tr,m.descripcion);add(tr,m.categoria);add(tr,m.proveedorNum);add(tr,m.proveedor);addNum(tr,m.leadTimeDias);
+    add(tr,m.planta);add(tr,m.codigo);add(tr,m.descripcion);add(tr,m.categoria);add(tr,m.proveedorNum);add(tr,m.proveedor);addNum(tr,m.leadTimeDias);
     add(tr,m.unidad);add(tr,m.ubicacion);
     addNum(tr,aplicaMinMax(m)&&tieneValor(m.minimo)?m.minimo:'');addNum(tr,aplicaMinMax(m)&&tieneValor(m.maximo)?m.maximo:'');
     addMoney(tr,tieneValor(m.costoUnitario)?num(m.costoUnitario):null);
@@ -660,7 +678,7 @@ function insertarMateriales(lista){
   var chain=Promise.resolve();
   nuevos.forEach(function(m){
     chain=chain.then(function(){return domo.post(CAT_URL,{content:Object.assign({
-      codigo:'',descripcion:'',categoria:'',proveedorNum:'',proveedor:'',leadTimeDias:0,unidad:'',ubicacion:'',
+      codigo:'',descripcion:'',planta:'',categoria:'',proveedorNum:'',proveedor:'',leadTimeDias:0,unidad:'',ubicacion:'',
       aplicaMinMax:'NO',minimo:null,maximo:null,stockInicial:0,costoUnitario:null},m,{
       activo:'SI',fechaAlta:ahora,usuarioAlta:CURRENT_USER.label,usuarioAltaId:CURRENT_USER.id,
       fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});});
@@ -702,7 +720,8 @@ function importarPegado(){
     return {codigo:c[0]||'',descripcion:c[1]||'',categoria:(c[2]||'').toUpperCase(),proveedorNum:c[3]||'',proveedor:c[4]||'',
       leadTimeDias:num(c[5]),unidad:(c[6]||'').toUpperCase(),ubicacion:c[7]||'',
       aplicaMinMax:min!==null||max!==null?'SI':'NO',minimo:min,maximo:max,stockInicial:num(c[10]),
-      costoUnitario:c[11]!==undefined&&c[11]!==''?num(String(c[11]).replace(/[$,\s]/g,'')):null};
+      costoUnitario:c[11]!==undefined&&c[11]!==''?num(String(c[11]).replace(/[$,\s]/g,'')):null,
+      planta:plantaValida(c[12])};
   });
   if(!lista.length){showError('Pega al menos una fila.');return;}
   setBusy(true);clearStatus();
@@ -861,6 +880,14 @@ function previewZpl(){
     .catch(function(e){showError('No se pudo obtener la vista previa (labelary.com): '+errText(e));})
     .then(function(){setBusy(false);});
 }
+
+// ================= Plantas =================
+function llenarPlantas(){
+  Array.prototype.forEach.call(document.querySelectorAll('select.planta-select,select.planta-filter'),function(sel){
+    PLANTAS.forEach(function(p){var o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});
+  });
+}
+function plantaValida(v){v=String(v||'').trim().toUpperCase();return PLANTAS.indexOf(v)>=0?v:'';}
 
 // ================= Usuarios y permisos =================
 // Registrado = está en mro_usuarios y activo. Mientras no haya ningún usuario

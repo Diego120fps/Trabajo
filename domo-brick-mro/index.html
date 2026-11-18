@@ -44,6 +44,7 @@
     <div class="section-header"><h3>Inventario actual</h3><div><button id="btnExportarInv" class="secondary small">Exportar CSV</button><button id="btnRefrescarInventario" class="secondary small">Refrescar</button></div></div>
     <div class="filters-row">
       <div class="filter-group"><label>Buscar</label><input id="buscarInv" type="text" placeholder="Código / descripción / proveedor"></div>
+      <div class="filter-group"><label>Planta</label><select id="filtroPlantaInv" class="planta-filter"><option value="">Todas</option></select></div>
       <div class="filter-group"><label>Categoría</label><select id="filtroCategoriaInv" class="cat-filter"><option value="">Todas</option></select></div>
       <div class="filter-group"><label>Estado</label><select id="filtroEstadoInv">
         <option value="">Todos</option><option value="reorden">Requiere reorden (sin stock + en mínimo)</option>
@@ -51,7 +52,7 @@
         <option value="max">Sobre máximo</option><option value="na">Sin mín/máx</option></select></div>
     </div>
     <span class="hint">Stock = stock inicial + entradas − salidas ± ajustes. Comprometido = cantidad en solicitudes pendientes de entregar. Sugerido a pedir = máximo − stock cuando el material llegó al mínimo. Valor = stock × costo unitario.</span>
-    <div class="table-wrapper"><table><thead><tr><th>Estado</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor</th><th>Ubicación</th><th>Unidad</th><th>Stock</th><th>Comprometido</th><th>Disponible</th><th>Mín</th><th>Máx</th><th>Sugerido a pedir</th><th>Costo unitario</th><th>Valor inventario</th><th>Lead time (días)</th><th>Último movimiento</th></tr></thead><tbody id="inventarioTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Estado</th><th>Planta</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor</th><th>Ubicación</th><th>Unidad</th><th>Stock</th><th>Comprometido</th><th>Disponible</th><th>Mín</th><th>Máx</th><th>Sugerido a pedir</th><th>Costo unitario</th><th>Valor inventario</th><th>Lead time (días)</th><th>Último movimiento</th></tr></thead><tbody id="inventarioTbody"></tbody></table></div>
   </section>
 
   <!-- ================= SOLICITAR ================= -->
@@ -59,6 +60,7 @@
     <div class="section-header"><h3>Nueva solicitud de material</h3></div>
     <div class="filters-row">
       <div class="filter-group"><label>Quién solicita</label><input id="solicitanteInput" type="text" readonly placeholder="Se llenará con tu usuario de DOMO"></div>
+      <div class="filter-group"><label for="solPlantaInput">Planta</label><select id="solPlantaInput" class="planta-select"><option value="">Selecciona planta</option></select></div>
       <div class="filter-group"><label for="areaInput">Área / línea</label><input id="areaInput" type="text" placeholder="Ej. Costura L3"></div>
     </div>
     <div class="filters-row">
@@ -76,18 +78,19 @@
     <div class="section-header"><h3>Solicitudes</h3><button id="btnRefrescarSolicitar" class="secondary small">Refrescar</button></div>
     <div class="filters-row">
       <div class="filter-group"><label>Buscar</label><input id="buscarSol" type="text" placeholder="Folio / código / solicitante"></div>
+      <div class="filter-group"><label>Planta</label><select id="filtroPlantaSol" class="planta-filter"><option value="">Todas</option></select></div>
       <div class="filter-group"><label>Estatus</label><select id="filtroEstatusSol"><option value="">Todos</option><option>Pendiente</option><option>Entregada</option><option>Entregada parcial</option><option>Rechazada</option><option>Cancelada</option></select></div>
       <label class="check"><input id="soloMiasSol" type="checkbox" checked> Solo mis solicitudes</label>
     </div>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Solicitante</th><th>Área</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Entregado</th><th>Estatus</th><th>Entregó</th><th>Recibió</th><th>Fecha entrega / cierre</th><th>Comentario / motivo</th><th>Acción</th></tr></thead><tbody id="solicitudesTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Solicitante</th><th>Planta</th><th>Área</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Entregado</th><th>Estatus</th><th>Entregó</th><th>Recibió</th><th>Fecha entrega / cierre</th><th>Comentario / motivo</th><th>Acción</th></tr></thead><tbody id="solicitudesTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ENTREGAS ================= -->
   <section id="tabEntregas" style="display:none">
     <div class="section-header"><h3>Solicitudes pendientes de entregar</h3><button id="btnRefrescarEntregas" class="secondary small">Refrescar</button></div>
-    <div class="filters-row"><div class="filter-group"><label>Buscar</label><input id="buscarEnt" type="text" placeholder="Folio / código / solicitante / área"></div></div>
+    <div class="filters-row"><div class="filter-group"><label>Planta</label><select id="filtroPlantaEnt" class="planta-filter"><option value="">Todas</option></select></div><div class="filter-group"><label>Buscar</label><input id="buscarEnt" type="text" placeholder="Folio / código / solicitante / área"></div></div>
     <span class="hint">Al entregar se registra una salida de inventario con tu usuario como quien entrega. Si entregas menos de lo solicitado, la solicitud queda como "Entregada parcial".</span>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha solicitud</th><th>Solicitante</th><th>Área</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Stock</th><th>Cantidad a entregar</th><th>Recibe</th><th>Acción</th></tr></thead><tbody id="entregasTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha solicitud</th><th>Solicitante</th><th>Planta</th><th>Área</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Stock</th><th>Cantidad a entregar</th><th>Recibe</th><th>Acción</th></tr></thead><tbody id="entregasTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ENTRADAS / SALIDAS ================= -->
@@ -122,6 +125,7 @@
     <div class="filters-row">
       <div class="filter-group"><label for="catCodigo">Código</label><input id="catCodigo" type="text"></div>
       <div class="filter-group grow"><label for="catDescripcion">Descripción</label><input id="catDescripcion" type="text"></div>
+      <div class="filter-group"><label for="catPlanta">Planta</label><select id="catPlanta" class="planta-select"><option value="">Selecciona planta</option></select></div>
       <div class="filter-group"><label for="catCategoria">Categoría</label><input id="catCategoria" type="text" list="categoriasList"></div>
       <div class="filter-group"><label for="catUnidad">Unidad</label><input id="catUnidad" type="text" placeholder="PZA, CAJA, ROLLO..."></div>
       <div class="filter-group"><label for="catUbicacion">Ubicación</label><input id="catUbicacion" type="text" placeholder="Rack / nivel"></div>
@@ -145,17 +149,18 @@
     <div class="section-header"><h3>Catálogo de materiales</h3><button id="btnRefrescarCatalogo" class="secondary small">Refrescar</button></div>
     <div class="filters-row">
       <div class="filter-group"><label>Buscar</label><input id="buscarCat" type="text" placeholder="Código / descripción / proveedor"></div>
+      <div class="filter-group"><label>Planta</label><select id="filtroPlantaCat" class="planta-filter"><option value="">Todas</option></select></div>
       <div class="filter-group"><label>Categoría</label><select id="filtroCategoriaCat" class="cat-filter"><option value="">Todas</option></select></div>
       <label class="check"><input id="mostrarInactivosCat" type="checkbox"> Mostrar inactivos</label>
       <button id="btnSeed" class="secondary" style="display:none">Importar catálogo del Excel CONTROL_MRO</button>
       <button id="btnTogglePegar" class="secondary">Pegar desde Excel</button>
     </div>
     <div id="pegarBox" class="pegar-box" style="display:none">
-      <span class="hint">Copia las filas de Excel con estas columnas en este orden: Código, Descripción, Categoría, Proveedor #, Proveedor, Lead time, Unidad, Ubicación, Mínimo, Máximo, Stock inicial, Costo unitario. Los códigos que ya existen se omiten.</span>
+      <span class="hint">Copia las filas de Excel con estas columnas en este orden: Código, Descripción, Categoría, Proveedor #, Proveedor, Lead time, Unidad, Ubicación, Mínimo, Máximo, Stock inicial, Costo unitario, Planta. Los códigos que ya existen se omiten.</span>
       <textarea id="pegarTexto" rows="6" placeholder="Pega aquí las filas copiadas de Excel"></textarea>
       <div><button id="btnImportarPegado">Importar</button></div>
     </div>
-    <div class="table-wrapper"><table><thead><tr><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor #</th><th>Proveedor</th><th>Lead time</th><th>Unidad</th><th>Ubicación</th><th>Mín</th><th>Máx</th><th>Costo unitario</th><th>Activo</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="catalogoTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Planta</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor #</th><th>Proveedor</th><th>Lead time</th><th>Unidad</th><th>Ubicación</th><th>Mín</th><th>Máx</th><th>Costo unitario</th><th>Activo</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="catalogoTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ETIQUETAS ================= -->
