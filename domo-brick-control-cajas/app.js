@@ -448,10 +448,10 @@ function renderSemaforo(){
 
 // ---------- Histórico ----------
 // Nombres únicos de un campo de usuario entre las cajas de un folio.
-function usuariosUnicos(related,field,extra){
+function usuariosUnicos(related,field,extra,sep){
   var seen={},out=[];
   (extra?[extra]:[]).concat(related.map(function(x){return x.content[field];})).forEach(function(v){if(v&&!seen[v]){seen[v]=true;out.push(v);}});
-  return out.join(', ');
+  return out.join(sep||', ');
 }
 function sumaCosto(related){return related.reduce(function(a,x){return a+(Number(x.content.costoExtra)||0);},0);}
 function renderHistorico(){
@@ -466,7 +466,8 @@ function renderHistorico(){
       usuarioLogistica:usuariosUnicos(rel,'usuarioLogistica'),
       usuarioLlegada:usuariosUnicos(rel,'usuarioAlmacenLlegada'),
       usuarioSalida:usuariosUnicos(rel,'usuarioAlmacenSalida'),
-      usuarioCancelacion:usuariosUnicos(rel,'usuarioCancelacion',c.usuarioCancelacion)
+      usuarioCancelacion:usuariosUnicos(rel,'usuarioCancelacion',c.usuarioCancelacion),
+      motivoCancelacion:usuariosUnicos(rel,'comentarioCancelacion',c.comentarioCancelacion,' | ')
     };
   }).filter(function(x){
     var c=x.d.content;
@@ -478,12 +479,12 @@ function renderHistorico(){
     if(tipoF&&x.tipo!==tipoF)return false;
     if(estF&&x.r.estatus!==estF)return false;
     if(q){
-      var texto=[String(c.folio),c.solicitante,x.usuarioAlta,x.usuarioLogistica,x.usuarioLlegada,x.usuarioSalida,x.usuarioCancelacion].join(' ').toLowerCase();
+      var texto=[String(c.folio),c.solicitante,x.usuarioAlta,x.usuarioLogistica,x.usuarioLlegada,x.usuarioSalida,x.usuarioCancelacion,x.motivoCancelacion].join(' ').toLowerCase();
       if(texto.indexOf(q)<0)return false;
     }
     return true;
   }).sort(function(a,b){return Number(b.d.content.folio)-Number(a.d.content.folio);});
-  if(!rows.length){empty(body,21,'No hay solicitudes procesadas para los filtros seleccionados.');return;}
+  if(!rows.length){empty(body,22,'No hay solicitudes procesadas para los filtros seleccionados.');return;}
   rows.forEach(function(x){
     var c=x.d.content,r=x.r;
     var tiempos=r.related.map(function(y){
@@ -501,6 +502,7 @@ function renderHistorico(){
      r.programadas,r.recibidas,r.despachadas,r.canceladas].forEach(function(v){add(tr,v);});
     addEstatus(tr,r.estatus);
     [x.usuarioAlta,x.usuarioLogistica,x.usuarioLlegada,x.usuarioSalida,x.usuarioCancelacion].forEach(function(v){add(tr,v);});
+    var mtd=document.createElement('td');mtd.className='comentario';mtd.textContent=x.motivoCancelacion;tr.appendChild(mtd);
     addCosto(tr,sumaCosto(r.related));
     add(tr,promedio);
     addDot(tr,promedioMin===null?'gray':agingLevel(promedioMin));
