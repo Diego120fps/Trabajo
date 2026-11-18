@@ -13,6 +13,7 @@
       <button id="tabBtnAlmacen" class="tab-btn">Almacén</button>
       <button id="tabBtnSemaforo" class="tab-btn">Semáforo</button>
       <button id="tabBtnHistorico" class="tab-btn">Histórico</button>
+      <button id="tabBtnCanceladas" class="tab-btn">Canceladas</button>
     </div>
     <div class="user-badge">
       <span class="user-badge-label">Usuario activo:</span>
@@ -29,26 +30,28 @@
       <div class="filter-group"><label for="fechaRequeridaInput">Fecha en que se requiere</label><input id="fechaRequeridaInput" type="date"></div>
       <div class="filter-group"><label for="plantaInput">Planta</label><select id="plantaInput"><option value="">Selecciona planta</option><option value="AMP">AMP</option><option value="PLATAFORMA">PLATAFORMA</option></select></div>
       <div class="filter-group"><label for="destinoInput">Destino</label><select id="destinoInput"><option value="">Selecciona destino</option><option value="DALLAS">DALLAS</option><option value="LAREDO">LAREDO</option><option value="DIRECTO">DIRECTO</option></select></div>
+      <div class="filter-group"><label>Tipo de solicitud</label><span id="tipoHoy" class="pill"></span></div>
       <button id="btnCrear">Registrar solicitud</button>
     </div>
-    <span class="hint">El solicitante se toma automáticamente del usuario activo de DOMO. Se generará un folio y un registro individual por cada caja solicitada. Logística podrá programarlas en fechas y horarios distintos.</span>
+    <span class="hint">El solicitante se toma automáticamente del usuario activo de DOMO. Las solicitudes registradas en un día distinto a jueves se marcan como <b>Extraordinaria</b>. Se generará un folio y un registro individual por cada caja solicitada.</span>
     <div class="section-header"><h3>Detalle de solicitudes</h3><button id="btnRefrescarAlta" class="secondary small">Refrescar</button></div>
     <div class="filters-row"><div class="filter-group"><label>Buscar</label><input id="buscarAlta" type="text" placeholder="Folio / solicitante"></div><div class="filter-group"><label>Planta</label><select id="filtroPlantaAlta"><option value="">Todas</option><option>AMP</option><option>PLATAFORMA</option></select></div></div>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Cajas solicitadas</th><th>Fecha requerida</th><th>Fecha de registro</th><th>Programadas</th><th>Recibidas</th><th>Despachadas</th><th>Estatus</th></tr></thead><tbody id="altaTbody"></tbody></table></div>
+    <span class="hint">"Cancelar" cancela todas las cajas de la solicitud que aún no han salido.</span>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Tipo</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Cajas solicitadas</th><th>Fecha requerida</th><th>Fecha de registro</th><th>Programadas</th><th>Recibidas</th><th>Despachadas</th><th>Canceladas</th><th>Estatus</th><th>Acción</th></tr></thead><tbody id="altaTbody"></tbody></table></div>
   </section>
 
   <section id="tabLogistica" style="display:none">
     <div class="section-header"><h3>Programación de cajas — Logística</h3><button id="btnRefrescarLogistica" class="secondary small">Refrescar</button></div>
     <div class="filters-row"><div class="filter-group"><label>Buscar</label><input id="buscarLogistica" type="text" placeholder="Folio / solicitante / caja"></div><div class="filter-group"><label>Planta</label><select id="filtroPlantaLogistica"><option value="">Todas</option><option>AMP</option><option>PLATAFORMA</option></select></div></div>
     <span class="hint">Asigna cada caja por separado. Al guardar la asignación se registra tu usuario como Usuario Logística y la caja pasa automáticamente a Almacén.</span>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Fecha requerida</th><th>Número de caja</th><th>Fecha/hora programada</th><th>Estatus</th><th>Acción</th></tr></thead><tbody id="logisticaTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Tipo</th><th>Caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Fecha requerida</th><th>Número de caja</th><th>Fecha/hora programada</th><th>Estatus</th><th>Acción</th></tr></thead><tbody id="logisticaTbody"></tbody></table></div>
   </section>
 
   <section id="tabAlmacen" style="display:none">
     <div class="section-header"><h3>Recepción y despacho — Almacén</h3><button id="btnRefrescarAlmacen" class="secondary small">Refrescar</button></div>
     <div class="filters-row"><div class="filter-group"><label>Buscar</label><input id="buscarAlmacen" type="text" placeholder="Folio / solicitante / caja"></div><div class="filter-group"><label>Planta</label><select id="filtroPlantaAlmacen"><option value="">Todas</option><option>AMP</option><option>PLATAFORMA</option></select></div></div>
-    <span class="hint">Al confirmar la llegada o la salida se registra tu usuario como Usuario Almacén de esa acción.</span>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Programada</th><th>Usuario logística</th><th>Llegada real</th><th>Usuario almacén llegada</th><th>Salida real</th><th>Tiempo de carga</th><th>Acción</th></tr></thead><tbody id="almacenTbody"></tbody></table></div>
+    <span class="hint">Al confirmar la llegada o la salida se registra tu usuario como Usuario Almacén de esa acción. Tiempo libre de carga: 3 hrs desde la llegada; después, cada hora o fracción genera un costo extra de 300 USD que se guarda al confirmar la salida.</span>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Tipo</th><th>Caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Programada</th><th>Usuario logística</th><th>Llegada real</th><th>Usuario almacén llegada</th><th>Tiempo de carga</th><th>Costo extra (estimado)</th><th>Acción</th></tr></thead><tbody id="almacenTbody"></tbody></table></div>
   </section>
 
   <section id="tabSemaforo" style="display:none">
@@ -64,13 +67,14 @@
         </div>
         <div class="semaforo-card semaforo-card-rojo">
           <span class="semaforo-card-count" id="countRojo">0</span>
-          <span class="semaforo-card-label">&ge;3 hrs</span>
+          <span class="semaforo-card-label">&ge;3 hrs (con costo extra)</span>
         </div>
       </div>
+    <div class="costo-total">Costo extra acumulado (estimado) de cajas en almacén: <b id="costoExtraTotal">$0 USD</b></div>
 
     <div class="filters-row"><div class="filter-group"><label>Buscar</label><input id="buscarSemaforo" type="text" placeholder="Folio / solicitante / caja"></div><div class="filter-group"><label>Planta</label><select id="filtroPlantaSemaforo"><option value="">Todas</option><option>AMP</option><option>PLATAFORMA</option></select></div></div>
     <span class="hint">El aging comienza al confirmar la llegada y se detiene al confirmar la salida. La tabla muestra únicamente cajas recibidas que siguen dentro de Almacén.</span>
-    <div class="table-wrapper"><table><thead><tr><th>Aging</th><th>Folio</th><th>Caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Fecha/hora llegada</th><th>Usuario almacén llegada</th><th>Tiempo transcurrido</th></tr></thead><tbody id="semaforoTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Aging</th><th>Folio</th><th>Tipo</th><th>Caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Fecha/hora llegada</th><th>Usuario almacén llegada</th><th>Tiempo transcurrido</th><th>Costo extra (estimado)</th></tr></thead><tbody id="semaforoTbody"></tbody></table></div>
   </section>
 
   <section id="tabHistorico" style="display:none">
@@ -79,10 +83,36 @@
       <div class="filter-group"><label for="fechaDesdeHistorico">Fecha de registro desde</label><input id="fechaDesdeHistorico" type="date"></div>
       <div class="filter-group"><label for="fechaHastaHistorico">Fecha de registro hasta</label><input id="fechaHastaHistorico" type="date"></div>
       <div class="filter-group"><label for="filtroPlantaHistorico">Planta (opcional)</label><select id="filtroPlantaHistorico"><option value="">Todas</option><option>AMP</option><option>PLATAFORMA</option></select></div>
+      <div class="filter-group"><label for="filtroTipoHistorico">Tipo</label><select id="filtroTipoHistorico"><option value="">Todos</option><option>Ordinaria</option><option>Extraordinaria</option></select></div>
+      <div class="filter-group"><label for="filtroEstatusHistorico">Estatus</label><select id="filtroEstatusHistorico"><option value="">Todos</option><option>Completada</option><option>Completada con canceladas</option><option>Cancelada</option></select></div>
       <div class="filter-group"><label for="buscarHistorico">Buscar</label><input id="buscarHistorico" type="text" placeholder="Folio / solicitante / usuario"></div>
     </div>
-    <span class="hint">Se muestran solicitudes en las que todas las cajas ya confirmaron su salida. El tiempo promedio se calcula por caja desde la confirmación de llegada hasta la confirmación de salida en Almacén. Las columnas de usuarios muestran a todas las personas que intervinieron en las cajas del folio.</span>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Cajas solicitadas</th><th>Fecha requerida</th><th>Fecha de registro</th><th>Programadas</th><th>Recibidas</th><th>Despachadas</th><th>Estatus</th><th>Usuario alta</th><th>Usuario logística</th><th>Usuario almacén llegada</th><th>Usuario almacén salida</th><th>Tiempo promedio de proceso (hrs)</th><th>Aging</th></tr></thead><tbody id="historicoTbody"></tbody></table></div>
+    <span class="hint">Se muestran solicitudes en las que todas las cajas ya salieron o fueron canceladas. El tiempo promedio se calcula por caja desde la confirmación de llegada hasta la confirmación de salida. El costo extra es la suma de las cajas del folio.</span>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Tipo</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Cajas solicitadas</th><th>Fecha requerida</th><th>Fecha de registro</th><th>Programadas</th><th>Recibidas</th><th>Despachadas</th><th>Canceladas</th><th>Estatus</th><th>Usuario alta</th><th>Usuario logística</th><th>Usuario almacén llegada</th><th>Usuario almacén salida</th><th>Usuario cancelación</th><th>Costo extra (USD)</th><th>Tiempo promedio de proceso (hrs)</th><th>Aging</th></tr></thead><tbody id="historicoTbody"></tbody></table></div>
   </section>
+
+  <section id="tabCanceladas" style="display:none">
+    <div class="section-header"><h3>Cajas canceladas</h3><button id="btnRefrescarCanceladas" class="secondary small">Refrescar</button></div>
+    <div class="filters-row">
+      <div class="filter-group"><label for="fechaDesdeCanceladas">Fecha de cancelación desde</label><input id="fechaDesdeCanceladas" type="date"></div>
+      <div class="filter-group"><label for="fechaHastaCanceladas">Fecha de cancelación hasta</label><input id="fechaHastaCanceladas" type="date"></div>
+      <div class="filter-group"><label for="filtroPlantaCanceladas">Planta</label><select id="filtroPlantaCanceladas"><option value="">Todas</option><option>AMP</option><option>PLATAFORMA</option></select></div>
+      <div class="filter-group"><label for="buscarCanceladas">Buscar</label><input id="buscarCanceladas" type="text" placeholder="Folio / caja / usuario / comentario"></div>
+    </div>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Tipo</th><th>Caja</th><th>Número de caja</th><th>Solicitante</th><th>Planta</th><th>Destino</th><th>Cancelada en</th><th>Fecha/hora cancelación</th><th>Usuario cancelación</th><th>Comentario</th><th>Costo extra (USD)</th></tr></thead><tbody id="canceladasTbody"></tbody></table></div>
+  </section>
+</div>
+
+<div id="cancelModal" class="modal-backdrop" style="display:none">
+  <div class="modal">
+    <h3 id="cancelModalTitle">Cancelar</h3>
+    <p id="cancelModalText" class="hint"></p>
+    <label for="cancelComentario">Motivo de la cancelación (obligatorio)</label>
+    <textarea id="cancelComentario" rows="4" placeholder="Escribe por qué se cancela"></textarea>
+    <div class="modal-actions">
+      <button id="cancelModalCerrar" class="secondary">Regresar</button>
+      <button id="cancelModalConfirmar" class="small-Rojo">Confirmar cancelación</button>
+    </div>
+  </div>
 </div>
 </body></html>

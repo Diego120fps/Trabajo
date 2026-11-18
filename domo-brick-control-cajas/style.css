@@ -57,3 +57,31 @@ button.small-Rojo{padding:5px 9px;margin:2px; background-color: #c0392b !importa
 .semaforo-card-amarillo .semaforo-card-count { color: #b7950b; }
 .semaforo-card-rojo { background: #fdedec; }
 .semaforo-card-rojo .semaforo-card-count { color: #c0392b; }
+
+/* Tipo de solicitud y estatus */
+.badge-extra { background: #fdebd0; color: #a04000; }
+.badge-ord { background: #eef2f7; color: #4d4d4d; }
+.badge-cancel { background: #fdedec; color: #c0392b; }
+.costo-extra { color: #c0392b; font-weight: 700; }
+.costo-total { text-align: center; font-size: 13px; color: #4d4d4d; }
+.costo-total b { color: #c0392b; }
+td.comentario { max-width: 320px; white-space: pre-wrap; }
+button.small-Gris { padding: 5px 9px; margin: 2px; background: #fff; color: #c0392b; border: 1px solid #c0392b; }
+button.small-Gris:hover { background: #fdedec; }
+
+/* Modal de cancelación */
+.modal-backdrop {
+  position: fixed; inset: 0; z-index: 10;
+  background: rgba(0,0,0,.35);
+  display: flex; align-items: center; justify-content: center;
+}
+.modal {
+  background: #fff; border-radius: 8px; padding: 18px 20px;
+  width: 440px; max-width: calc(100% - 32px);
+  display: flex; flex-direction: column; gap: 8px;
+  box-shadow: 0 8px 30px rgba(0,0,0,.2);
+}
+.modal h3 { margin: 0; font-size: 14px; color: #2c2c2c; }
+.modal label { font-weight: 600; font-size: 12px; color: #4d4d4d; }
+.modal textarea { padding: 6px 8px; border: 1px solid #cfd4da; border-radius: 4px; font: inherit; resize: vertical; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
