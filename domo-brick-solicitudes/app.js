@@ -423,7 +423,7 @@ function renderTable() {
 
 function buildRowGroup(doc) {
   var trs = [buildRow(doc)];
-  if (isAlmacen && actionMode && actionMode.id === doc.id && actionMode.type === 'picking' && !actionMode.esEdicion) {
+  if (isAlmacen && actionMode && actionMode.id === doc.id && actionMode.type === 'picking') {
     trs.push(buildFifoRow(doc));
   }
   return trs;
@@ -458,42 +458,22 @@ function buildPickingCell(doc) {
     return td;
   }
 
-  if (actionMode && actionMode.id === doc.id && actionMode.type === 'picking') {
-    td.appendChild(
-      buildInlineCapture('Usuario que asigna', actionMode.valorInicial, function (valor) {
-        if (actionMode.esEdicion) {
-          editarPicking(doc, valor);
-        } else {
-          confirmarPicking(doc, valor);
-        }
-      })
-    );
-    return td;
-  }
-
   if (c.userPicking) {
-    var valorSpan = document.createElement('span');
-    valorSpan.textContent = c.userPicking;
-    td.appendChild(valorSpan);
-
-    var btnEditarPicking = document.createElement('button');
-    btnEditarPicking.className = 'secondary small';
-    btnEditarPicking.textContent = 'Editar';
-    btnEditarPicking.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'picking', esEdicion: true, valorInicial: c.userPicking };
-      renderTable();
-    });
-    td.appendChild(btnEditarPicking);
+    td.textContent = c.userPicking;
     return td;
   }
 
   if (c.estatus === 0) {
+    if (actionMode && actionMode.id === doc.id && actionMode.type === 'picking') {
+      td.textContent = 'Asignando...';
+      return td;
+    }
+
     var btnAsignar = document.createElement('button');
     btnAsignar.className = 'small';
     btnAsignar.textContent = 'Asignar';
     btnAsignar.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'picking', esEdicion: false, valorInicial: CURRENT_USER.label };
-      fetchFifoLines(doc);
+      asignarAutomatico(doc);
     });
     td.appendChild(btnAsignar);
   }
@@ -501,9 +481,25 @@ function buildPickingCell(doc) {
   return td;
 }
 
+// Asigna directo con el usuario de la sesión (ya autocompletado): calcula
+// el FIFO y guarda de un solo clic, sin pedir ni confirmar el nombre.
+function asignarAutomatico(doc) {
+  if (!CURRENT_USER.label) {
+    showStatus('No se pudo identificar tu usuario de DOMO.');
+    return;
+  }
+  actionMode = { id: doc.id, type: 'picking' };
+  fetchFifoLines(doc, function () {
+    confirmarPicking(doc, CURRENT_USER.label);
+  });
+}
+
+
 function confirmarPicking(doc, userPicking) {
   if (!userPicking) {
-    showStatus('Ingresa el usuario que asigna.');
+    showStatus('No se pudo identificar tu usuario de DOMO para Asignar.');
+    actionMode = null;
+    renderTable();
     return;
   }
   var fifo = fifoCache[doc.id];
@@ -516,16 +512,7 @@ function confirmarPicking(doc, userPicking) {
   guardarCambios(doc.id, content);
 }
 
-function editarPicking(doc, userPicking) {
-  if (!userPicking) {
-    showStatus('Ingresa el usuario que asigna.');
-    return;
-  }
-  var content = Object.assign({}, doc.content, { userPicking: userPicking });
-  guardarCambios(doc.id, content);
-}
-
-function fetchFifoLines(doc) {
+function fetchFifoLines(doc, onDone) {
   fifoCache[doc.id] = { loading: true, lineas: [], cubierto: 0, faltante: doc.content.cantidad, error: null };
   renderTable();
 
@@ -538,6 +525,7 @@ function fetchFifoLines(doc) {
       error: 'Selecciona el dataset de Inventario en el brick (esquina inferior izquierda).'
     };
     renderTable();
+    if (onDone) onDone();
     return;
   }
 
@@ -548,6 +536,7 @@ function fetchFifoLines(doc) {
       resultado.error = null;
       fifoCache[doc.id] = resultado;
       renderTable();
+      if (onDone) onDone();
     })
     .catch(function (err) {
       fifoCache[doc.id] = {
@@ -558,6 +547,7 @@ function fetchFifoLines(doc) {
         error: describeError(err)
       };
       renderTable();
+      if (onDone) onDone();
     });
 }
 
@@ -711,32 +701,8 @@ function buildReleaseCell(doc) {
     return td;
   }
 
-  if (actionMode && actionMode.id === doc.id && actionMode.type === 'release') {
-    td.appendChild(
-      buildInlineCapture('Usuario que libera', actionMode.valorInicial, function (valor) {
-        if (actionMode.esEdicion) {
-          editarRelease(doc, valor);
-        } else {
-          confirmarRelease(doc, valor);
-        }
-      })
-    );
-    return td;
-  }
-
   if (c.userRelease) {
-    var valorSpan = document.createElement('span');
-    valorSpan.textContent = c.userRelease;
-    td.appendChild(valorSpan);
-
-    var btnEditarRelease = document.createElement('button');
-    btnEditarRelease.className = 'secondary small';
-    btnEditarRelease.textContent = 'Editar';
-    btnEditarRelease.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'release', esEdicion: true, valorInicial: c.userRelease };
-      renderTable();
-    });
-    td.appendChild(btnEditarRelease);
+    td.textContent = c.userRelease;
     return td;
   }
 
@@ -745,8 +711,8 @@ function buildReleaseCell(doc) {
     btnRelease.className = 'small';
     btnRelease.textContent = 'Release';
     btnRelease.addEventListener('click', function () {
-      actionMode = { id: doc.id, type: 'release', esEdicion: false, valorInicial: CURRENT_USER.label };
-      renderTable();
+      btnRelease.disabled = true;
+      confirmarRelease(doc, CURRENT_USER.label);
     });
     td.appendChild(btnRelease);
   }
@@ -756,7 +722,7 @@ function buildReleaseCell(doc) {
 
 function confirmarRelease(doc, userRelease) {
   if (!userRelease) {
-    showStatus('Ingresa el usuario que libera.');
+    showStatus('No se pudo identificar tu usuario de DOMO para Release.');
     return;
   }
   var ahora = new Date();
@@ -767,15 +733,6 @@ function confirmarRelease(doc, userRelease) {
     estatus: 2,
     tiempoRespuestaSegundos: tiempoRespuestaSegundos
   });
-  guardarCambios(doc.id, content);
-}
-
-function editarRelease(doc, userRelease) {
-  if (!userRelease) {
-    showStatus('Ingresa el usuario que libera.');
-    return;
-  }
-  var content = Object.assign({}, doc.content, { userRelease: userRelease });
   guardarCambios(doc.id, content);
 }
 
@@ -794,36 +751,6 @@ function guardarCambios(docId, content) {
     .then(function () {
       setLoading(false);
     });
-}
-
-function buildInlineCapture(placeholder, valorInicial, onConfirm) {
-  var wrapper = document.createElement('div');
-  wrapper.className = 'inline-action';
-
-  var input = document.createElement('input');
-  input.type = 'text';
-  input.placeholder = placeholder;
-  input.value = valorInicial || '';
-
-  var btnConfirmar = document.createElement('button');
-  btnConfirmar.className = 'small';
-  btnConfirmar.textContent = 'Confirmar';
-  btnConfirmar.addEventListener('click', function () {
-    onConfirm(input.value.trim());
-  });
-
-  var btnCancelar = document.createElement('button');
-  btnCancelar.className = 'secondary small';
-  btnCancelar.textContent = 'Cancelar';
-  btnCancelar.addEventListener('click', function () {
-    actionMode = null;
-    renderTable();
-  });
-
-  wrapper.appendChild(input);
-  wrapper.appendChild(btnConfirmar);
-  wrapper.appendChild(btnCancelar);
-  return wrapper;
 }
 
 function renderSemaforoTable() {
