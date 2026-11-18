@@ -484,7 +484,7 @@ function renderHistorico(){
     }
     return true;
   }).sort(function(a,b){return Number(b.d.content.folio)-Number(a.d.content.folio);});
-  if(!rows.length){empty(body,22,'No hay solicitudes procesadas para los filtros seleccionados.');return;}
+  if(!rows.length){empty(body,21,'No hay solicitudes procesadas para los filtros seleccionados.');return;}
   rows.forEach(function(x){
     var c=x.d.content,r=x.r;
     var tiempos=r.related.map(function(y){
@@ -498,7 +498,7 @@ function renderHistorico(){
     var tr=document.createElement('tr');
     add(tr,folio(c.folio));
     addTipo(tr,x.tipo);
-    [c.solicitante,c.planta,c.destino,c.cantidadCajas,fmtDate(c.fechaRequerida),fmtDateTime(c.fechaHoraInsert),
+    [c.planta,c.destino,c.cantidadCajas,fmtDate(c.fechaRequerida),fmtDateTime(c.fechaHoraInsert),
      r.programadas,r.recibidas,r.despachadas,r.canceladas].forEach(function(v){add(tr,v);});
     addEstatus(tr,r.estatus);
     [x.usuarioAlta,x.usuarioLogistica,x.usuarioLlegada,x.usuarioSalida,x.usuarioCancelacion].forEach(function(v){add(tr,v);});
