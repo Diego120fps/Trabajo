@@ -117,8 +117,7 @@ body {
 }
 
 .filter-group input[type="text"],
-.filter-group input[type="number"],
-.filter-group select {
+.filter-group input[type="number"] {
   min-width: 200px;
   padding: 6px 8px;
   border: 1px solid #cfd4da;
@@ -127,11 +126,19 @@ body {
   font-size: 13px;
 }
 
-.filter-group input:focus,
-.filter-group select:focus {
+.filter-group input:focus {
   outline: none;
   border-color: #0b6ecc;
   box-shadow: 0 0 0 2px rgba(11, 110, 204, 0.15);
+}
+
+.filter-group select{
+  min-width: 200px;
+  padding: 6px 8px;
+  border: 1px solid #cfd4da;
+  border-radius: 4px;
+  background: #fff;
+  font-size: 13px;
 }
 
 .checkbox-group {
@@ -347,9 +354,9 @@ table.fifo-table td {
 
 .semaforo-cards {
   display: flex;
+  justify-content:center;
   gap: 12px;
   flex-wrap: wrap;
-  justify-content: center;
 }
 
 .semaforo-card {
@@ -358,14 +365,14 @@ table.fifo-table td {
   align-items: center;
   justify-content: center;
   gap: 2px;
-  min-width: 120px;
+  min-width: 350px;
   padding: 12px 20px;
   border-radius: 8px;
   border: 1px solid #e4e7eb;
 }
 
 .semaforo-card-count {
-  font-size: 26px;
+  font-size: 60px;
   font-weight: 700;
   line-height: 1;
 }

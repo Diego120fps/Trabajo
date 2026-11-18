@@ -1,83 +1,42 @@
 var domo = window.domo;
 var datasets = window.datasets;
-
-// Dataset de Inventario seleccionado en el botón de la esquina inferior
-// izquierda del brick. Se usa SOLO para sugerir localidades FIFO al Asignar.
 var datasetId = datasets[0];
-
-var FIELD_ITEM_INV = 'ITEM_NUMBER_SECOND';       // Código de item en el dataset de inventario
-var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';    // Branch/Plant: se usa solo para filtrar (BRANCH_CODES)
-var FIELD_LOCATION = 'ILOC_LOCATION';            // Localidad real a donde ir por el material
-var FIELD_QTY_DISPONIBLE = 'ILOC_QTY_ON_HAND';   // Cantidad disponible en esa localidad
-var FIELD_FIFO_ORDEN = 'ILOC_DATE_LAST_RECEIPT'; // Fecha de último recibo: se usa para ordenar FIFO
+var FIELD_ITEM_INV = 'ITEM_NUMBER_SECOND';
+var FIELD_BRANCH_PLANT = 'ILOC_BRANCH_PLANT';
+var FIELD_LOCATION = 'ILOC_LOCATION';
+var FIELD_QTY_DISPONIBLE = 'ILOC_QTY_ON_HAND';
+var FIELD_FIFO_ORDEN = 'ILOC_DATE_LAST_RECEIPT';
 var INVENTARIO_LIMIT = 5000;
-
-// Localidad que nunca cuenta como disponible (ni para el FIFO ni para
-// validar la cantidad solicitada en Alta) -- ajusta aquí si cambia.
-var LOCALIDAD_EXCLUIDA = 'SMK';
-
-// Opciones del select de Línea. Edítalas aquí si cambian.
-var LINEA_OPTIONS = ['L1', 'L2', 'L3', 'L4', 'L5', 'L6'];
-
-// Este almacén solo surte desde estos Branch/Plant (mismo grupo "Plataforma"
-// que domo-brick-branch-item-pivot). El operador "in (...)" de la Data API
-// de DOMO no se comportó confiable con varios valores, así que se hace UNA
-// consulta por código (con "=") y se juntan los resultados, igual que allá.
 var BRANCH_CODES = ['1221', '2300'];
 
-// ============================================================
-// AppDB: TODO va en UN SOLO brick/app para que las 3 vistas (alta,
-// asignación/release, semáforo) compartan el mismo AppDB. AppDB en DOMO
-// está aislado por app: si cada vista fuera un brick/app distinto, cada
-// una tendría su propio almacén vacío aunque usen el mismo nombre de
-// colección (eso fue justo el bug que traía la versión de 3 bricks
-// separados: Alta veía sus datos, Almacén y Semáforo no).
-// ============================================================
+// Localidades que nunca cuentan como disponibles: ni para validar la
+// cantidad en Alta, ni para las localidades sugeridas del FIFO.
+var LOCALIDADES_EXCLUIDAS = ['SPM101', 'SPM102', 'SPM103', 'SPM104', 'SPM105', 'SPM106', 'SPMKT', 'SPMKT4'];
+
+// Catálogo de items (del dataset de Inventario) para sugerir mientras se
+// escribe en Item. Se carga una vez al inicio y se filtra en el navegador.
+var ITEM_CATALOGO_LIMIT = 10000;
+
 var COLLECTION = 'solicitudes';
 var DOCS_URL = '/domo/datastores/v1/collections/' + COLLECTION + '/documents';
-
-// Lista blanca de quién puede Asignar/Release. OJO: esto es control de UI,
-// NO una barrera de seguridad real -- cualquiera con la consola del
-// navegador podría llamar el API de AppDB directo con su propia sesión de
-// DOMO, sin pasar por este check. Si necesitas una barrera dura de verdad,
-// pregúntale a tu administrador de DOMO si su instancia soporta compartir
-// un AppDB entre apps distintas vía Admin/Governance; de ser así se puede
-// volver a separar en varios bricks con permisos de página reales.
 var ALMACEN_COLLECTION = 'almacen_usuarios';
 var ALMACEN_DOCS_URL = '/domo/datastores/v1/collections/' + ALMACEN_COLLECTION + '/documents';
-
 var ESTATUS_LABELS = { 0: 'Pendiente', 1: 'En proceso', 2: 'Completado' };
 var ESTATUS_INICIAL = 0;
-
-// Umbrales del semáforo en minutos desde fechaHoraInsert (o el tiempo de
-// respuesta ya congelado si la solicitud fue liberada).
 var AGING_AMARILLO_MIN = 30;
 var AGING_ROJO_MIN = 45;
-
 var AUTO_REFRESH_MS = 60000;
-
-// Este navegador no tiene forma de saber quién eres si domo.env()/el
-// endpoint de entorno no están disponibles en este tipo de brick; se
-// recuerda el nombre capturado manualmente aquí.
-var LOCAL_USER_KEY = 'solicitudes_miIdentidad';
-
-// ---------- DOM ----------
 var tabBtnAlta = document.getElementById('tabBtnAlta');
 var tabBtnAlmacen = document.getElementById('tabBtnAlmacen');
 var tabBtnSemaforo = document.getElementById('tabBtnSemaforo');
 var tabAlta = document.getElementById('tabAlta');
 var tabAlmacen = document.getElementById('tabAlmacen');
 var tabSemaforo = document.getElementById('tabSemaforo');
-
 var userLabelEl = document.getElementById('userLabel');
 var roleBadgeEl = document.getElementById('roleBadge');
-var identidadManualEl = document.getElementById('identidadManual');
-var identidadHintEl = document.getElementById('identidadHint');
-var miNombreInput = document.getElementById('miNombreInput');
-var btnGuardarNombre = document.getElementById('btnGuardarNombre');
-
 var solicitanteInput = document.getElementById('solicitanteInput');
 var itemInput = document.getElementById('itemInput');
+var itemOptionsEl = document.getElementById('itemOptions');
 var lineaInput = document.getElementById('lineaInput');
 var cantidadInput = document.getElementById('cantidadInput');
 var btnCrear = document.getElementById('btnCrear');
@@ -85,37 +44,28 @@ var btnRefrescarAlta = document.getElementById('btnRefrescarAlta');
 var buscarAltaInput = document.getElementById('buscarAltaInput');
 var mostrarCompletadasAltaInput = document.getElementById('mostrarCompletadasAltaInput');
 var altaTbody = document.querySelector('#altaTable tbody');
-
 var btnRefrescar = document.getElementById('btnRefrescar');
 var buscarInput = document.getElementById('buscarInput');
 var mostrarCompletadasInput = document.getElementById('mostrarCompletadasInput');
 var statusMsg = document.getElementById('statusMsg');
 var loadingEl = document.getElementById('loading');
 var tbody = document.querySelector('#solicitudesTable tbody');
-
 var buscarSemaforoInput = document.getElementById('buscarSemaforoInput');
 var mostrarCompletadasSemaforoInput = document.getElementById('mostrarCompletadasSemaforoInput');
 var semaforoTbody = document.querySelector('#semaforoTable tbody');
 var countVerdeEl = document.getElementById('countVerde');
 var countAmarilloEl = document.getElementById('countAmarillo');
 var countRojoEl = document.getElementById('countRojo');
-
-// ---------- Estado ----------
-var allDocs = []; // última lista de solicitudes traída de AppDB: [{id, content: {...}}, ...]
-var almacenUsuarios = []; // lista blanca de almacén: [{id, content: {userId, nombre}}, ...]
+var allDocs = [];
+var almacenUsuarios = [];
 var CURRENT_USER = { id: null, label: 'Usuario desconocido' };
 var isAlmacen = false;
-
-// Fila donde se está capturando el usuario de Asignar o de Release ahora mismo.
 var actionMode = null;
-// Cache de la sugerencia FIFO por solicitud mientras se está Asignando.
 var fifoCache = {};
 
 init();
 
 function init() {
-  poblarLineaOptions();
-
   tabBtnAlta.addEventListener('click', function () { switchTab('alta'); });
   tabBtnAlmacen.addEventListener('click', function () { switchTab('almacen'); });
   tabBtnSemaforo.addEventListener('click', function () { switchTab('semaforo'); });
@@ -132,7 +82,7 @@ function init() {
   buscarSemaforoInput.addEventListener('input', renderSemaforoTable);
   mostrarCompletadasSemaforoInput.addEventListener('change', renderSemaforoTable);
 
-  btnGuardarNombre.addEventListener('click', guardarIdentidadManual);
+  cargarCatalogoItems();
 
   ensureCollections()
     .then(cargarUsuarioActual)
@@ -158,7 +108,6 @@ function switchTab(tab) {
   if (tab === 'semaforo') renderSemaforoTable();
 }
 
-// ---------- Colecciones AppDB ----------
 function ensureCollections() {
   return Promise.all([
     domo
@@ -197,86 +146,46 @@ function ensureCollections() {
 }
 
 // ---------- Usuario actual y rol ----------
-// Este tipo de brick (código simple de App Studio, sin manifest.json) NO
-// expone la identidad real de la sesión de DOMO: ni domo.env() existe como
-// función aquí, ni hay un endpoint equivalente disponible vía domo.get()
-// (se probó /domo/environment/v1 y el propio cliente de DOMO tronaba con
-// "domo.env is not a function" al pedirlo -- por eso ya no se intenta).
-// En su lugar, se pide el nombre una sola vez y se recuerda en este
-// navegador (ver mostrarCapturaManual).
+// Obtiene la identidad de la sesión activa de DOMO.
 function cargarUsuarioActual() {
-  mostrarCapturaManual();
-  return Promise.resolve();
-}
+  var domoUserId = domo.env && domo.env.userId;
 
-// Recuerda un nombre capturado a mano en este navegador (localStorage), para
-// cuando DOMO no expone la identidad real de sesión en este tipo de brick.
-// OJO: esto NO es una identidad real de DOMO -- si varias personas comparten
-// el mismo navegador/perfil, comparten esta "identidad".
-function cargarIdentidadLocal() {
-  try {
-    var guardado = JSON.parse(localStorage.getItem(LOCAL_USER_KEY) || 'null');
-    if (guardado && guardado.id && guardado.label) return guardado;
-  } catch (e) {
-    // localStorage no disponible; se pedirá el nombre cada vez.
+  if (!domoUserId) {
+    CURRENT_USER = { id: null, label: 'Usuario desconocido' };
+    showStatus('No se encontró domo.env.userId. Verifica que el brick tenga disponible el contexto de usuario de DOMO.');
+    return Promise.resolve();
   }
-  return null;
-}
 
-function mostrarCapturaManual() {
-  var guardado = cargarIdentidadLocal();
-  if (guardado) {
-    CURRENT_USER = guardado;
-    return;
-  }
-  CURRENT_USER = { id: null, label: 'Sin identificar' };
-  identidadHintEl.style.display = '';
-  identidadManualEl.style.display = '';
-}
+  return domo
+    .get('/domo/users/v1/' + encodeURIComponent(domoUserId) + '?includeDetails=true')
+    .then(function (user) {
+      CURRENT_USER = {
+        id: String(user.id || domoUserId),
+        label: user.displayName || user.name || 'Usuario sin nombre'
+      };
 
-// El id se deriva del nombre (sin parte aleatoria) para que sea predecible:
-// la misma persona escribiendo el mismo nombre en cualquier navegador
-// obtiene el mismo id, y si prefieres precargar la colección
-// "almacen_usuarios" a mano desde el explorador de AppDB de DOMO en vez de
-// que cada quien use el botón "Registrarme como almacén", el id a escribir
-// es exactamente "local-" + el nombre en minúsculas con guiones en vez de
-// espacios (ej. "Juan Pérez" -> "local-juan-pérez").
-function guardarIdentidadManual() {
-  var nombre = miNombreInput.value.trim();
-  if (!nombre) {
-    showStatus('Escribe tu nombre.');
-    return;
-  }
-  var id = 'local-' + nombre.toLowerCase().replace(/\s+/g, '-');
-  CURRENT_USER = { id: id, label: nombre };
-  try {
-    localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(CURRENT_USER));
-  } catch (e) {
-    // localStorage no disponible; seguirá funcionando en esta sesión pero
-    // pedirá el nombre otra vez si se recarga la página.
-  }
-  identidadManualEl.style.display = 'none';
-  identidadHintEl.style.display = 'none';
-  setLoading(true);
-  cargarAlmacenUsuarios()
-    .then(renderRoleUI)
-    .then(function () {
-      setLoading(false);
+      // Precarga el solicitante sin sobrescribir un valor que ya haya escrito el usuario.
+      if (!solicitanteInput.value.trim()) {
+        solicitanteInput.value = CURRENT_USER.label;
+      }
+    })
+    .catch(function (err) {
+      CURRENT_USER = { id: null, label: 'Usuario desconocido' };
+      showStatus('No se pudo obtener el usuario de DOMO: ' + describeError(err));
     });
 }
 
+// Lista blanca de quién puede Asignar/Release. Se da de alta a mano
+// (userId + nombre) directo en la colección AppDB "almacen_usuarios" --
+// no hay autoregistro, así se mantiene control total de quién entra.
 function cargarAlmacenUsuarios() {
   return domo
     .get(ALMACEN_DOCS_URL + '?limit=1000')
     .then(function (docs) {
       almacenUsuarios = docs || [];
-      var coincidePorId = !!CURRENT_USER.id && almacenUsuarios.some(function (doc) {
+      isAlmacen = !!CURRENT_USER.id && almacenUsuarios.some(function (doc) {
         return doc.content.userId === CURRENT_USER.id;
       });
-      // Match automático por nombre: si ya precargaste "almacen_usuarios"
-      // con los nombres del equipo, con solo escribir su nombre quedan
-      // identificados como Almacén, sin dar clic en "Registrarme".
-      isAlmacen = coincidePorId || nombreCoincideConAlmacen(CURRENT_USER.label);
     })
     .catch(function () {
       almacenUsuarios = [];
@@ -284,47 +193,67 @@ function cargarAlmacenUsuarios() {
     });
 }
 
-function nombreCoincideConAlmacen(nombre) {
-  var normalizado = normalizarTexto(nombre);
-  if (!normalizado) return false;
-  return almacenUsuarios.some(function (doc) {
-    return normalizarTexto(doc.content.nombre) === normalizado;
-  });
-}
-
-function normalizarTexto(s) {
-  return (s || '').trim().toLowerCase();
-}
-
 function renderRoleUI() {
-  // Se muestra el id junto al nombre para poder darlos de alta a mano en
-  // el explorador de AppDB de DOMO (colección "almacen_usuarios"): tú
-  // controlas quién entra, no hay autoregistro.
   userLabelEl.textContent = CURRENT_USER.id ? CURRENT_USER.label + ' (id: ' + CURRENT_USER.id + ')' : CURRENT_USER.label;
   roleBadgeEl.textContent = isAlmacen ? 'Almacén' : 'Solicitante';
   roleBadgeEl.className = 'role-badge ' + (isAlmacen ? 'role-almacen' : 'role-solicitante');
-  // "Quien solicita" se autocompleta con el nombre capturado, sin pisar lo
-  // que la persona ya haya escrito a mano.
-  if (CURRENT_USER.id && solicitanteInput.value.trim() === '') {
-    solicitanteInput.value = CURRENT_USER.label;
-  }
   renderTable();
 }
 
-// ---------- ALTA ----------
-function poblarLineaOptions() {
-  LINEA_OPTIONS.forEach(function (valor) {
+// ---------- Catálogo de items para autocompletar ----------
+// Trae los items distintos del dataset de Inventario (por Branch/Plant de
+// BRANCH_CODES, una consulta por código) y los pone en el <datalist> del
+// Item para que el navegador los sugiera mientras se escribe.
+function cargarCatalogoItems() {
+  if (!datasetId) return Promise.resolve();
+
+  var queries = BRANCH_CODES.map(function (branchCode) {
+    var filter = buildFieldFilter(FIELD_BRANCH_PLANT, branchCode);
+    var query =
+      '/data/v1/' + datasetId +
+      '?fields=' + FIELD_ITEM_INV +
+      '&groupby=' + FIELD_ITEM_INV +
+      '&filter=' + filter +
+      '&orderby=' + FIELD_ITEM_INV +
+      '&limit=' + ITEM_CATALOGO_LIMIT;
+    return domo.get(query);
+  });
+
+  return Promise.all(queries)
+    .then(function (results) {
+      var vistos = {};
+      var items = [];
+      results.forEach(function (rows) {
+        (rows || []).forEach(function (r) {
+          var valor = r[FIELD_ITEM_INV];
+          if (valor && !vistos[valor]) {
+            vistos[valor] = true;
+            items.push(valor);
+          }
+        });
+      });
+      items.sort();
+      poblarItemOptions(items);
+    })
+    .catch(function (err) {
+      console.error('No se pudo cargar el catálogo de items para sugerencias', err);
+    });
+}
+
+function poblarItemOptions(items) {
+  itemOptionsEl.innerHTML = '';
+  items.forEach(function (valor) {
     var opt = document.createElement('option');
     opt.value = valor;
-    opt.textContent = valor;
-    lineaInput.appendChild(opt);
+    itemOptionsEl.appendChild(opt);
   });
 }
 
+// ---------- ALTA ----------
 function crearSolicitud() {
   var solicitante = solicitanteInput.value.trim();
   var item = itemInput.value.trim();
-  var linea = lineaInput.value;
+  var linea = lineaInput.value.trim();
   var cantidadRaw = cantidadInput.value.trim();
 
   if (!solicitante || !item || !linea || cantidadRaw === '') {
@@ -342,12 +271,12 @@ function crearSolicitud() {
 
   validarInventarioDisponible(item)
     .then(function (disponible) {
-      // disponible === null cuando no hay dataset de Inventario seleccionado
-      // todavía: en ese caso no se puede validar, así que se deja crear.
+      // disponible === null cuando no hay dataset de Inventario
+      // seleccionado todavía: en ese caso no se puede validar, se deja crear.
       if (disponible !== null && disponible < cantidad) {
         showStatus(
           'Inventario insuficiente: disponible ' + formatNumber(disponible) +
-          ' de ' + formatNumber(cantidad) + ' solicitadas (no incluye la localidad ' + LOCALIDAD_EXCLUIDA + ').'
+          ' de ' + formatNumber(cantidad) + ' solicitadas (no incluye las localidades ' + LOCALIDADES_EXCLUIDAS.join('/') + ').'
         );
         return null;
       }
@@ -377,7 +306,7 @@ function crearSolicitud() {
 }
 
 // Cantidad disponible del item (sumando todos los Branch/Plant de
-// BRANCH_CODES, sin contar LOCALIDAD_EXCLUIDA). Regresa null si no hay
+// BRANCH_CODES, sin contar LOCALIDADES_EXCLUIDAS). Regresa null si no hay
 // dataset de Inventario seleccionado y por lo tanto no se puede validar.
 function validarInventarioDisponible(item) {
   if (!datasetId) return Promise.resolve(null);
@@ -419,7 +348,6 @@ function cargarSolicitudes() {
     });
 }
 
-// ---------- Tabla de Alta (solo lectura, sin botones de acción) ----------
 function renderAltaTable() {
   var filtro = buscarAltaInput.value.trim().toLowerCase();
   var mostrarCompletadas = mostrarCompletadasAltaInput.checked;
@@ -521,7 +449,6 @@ function buildRow(doc) {
   return tr;
 }
 
-// ---------- ASIGNAR (Picking) + sugerencia FIFO — solo Almacén ----------
 function buildPickingCell(doc) {
   var c = doc.content;
   var td = document.createElement('td');
@@ -598,7 +525,6 @@ function editarPicking(doc, userPicking) {
   guardarCambios(doc.id, content);
 }
 
-// ---------- Sugerencia FIFO ----------
 function fetchFifoLines(doc) {
   fifoCache[doc.id] = { loading: true, lineas: [], cubierto: 0, faltante: doc.content.cantidad, error: null };
   renderTable();
@@ -647,8 +573,6 @@ function fetchInventoryRows(itemCode) {
       '&filter=' + filter +
       '&orderby=' + FIELD_FIFO_ORDEN +
       '&limit=' + INVENTARIO_LIMIT;
-    // Se deja en consola para poder revisar la query exacta y su respuesta
-    // si el FIFO no regresa lo esperado (ej. field IDs incorrectos).
     console.log('Query FIFO inventario:', query);
     return domo.get(query);
   });
@@ -659,10 +583,10 @@ function fetchInventoryRows(itemCode) {
       [],
       results.map(function (r) { return r || []; })
     );
-    // La localidad excluida (ver LOCALIDAD_EXCLUIDA) nunca cuenta como
-    // disponible, ni para el FIFO ni para validar la cantidad en Alta.
+    // Las localidades excluidas nunca cuentan como disponibles, ni para
+    // validar la cantidad en Alta ni para las localidades sugeridas del FIFO.
     rows = rows.filter(function (r) {
-      return r[FIELD_LOCATION] !== LOCALIDAD_EXCLUIDA;
+      return LOCALIDADES_EXCLUIDAS.indexOf(r[FIELD_LOCATION]) === -1;
     });
     rows.sort(function (a, b) {
       return new Date(a[FIELD_FIFO_ORDEN]) - new Date(b[FIELD_FIFO_ORDEN]);
@@ -686,9 +610,7 @@ function calcularLineasFifo(rows, cantidadNecesaria) {
     });
     restante -= tomar;
   }
-  // rowCount se guarda para poder distinguir en el panel "no hay registros
-  // de este item en el dataset/Branch-Plant" de "hay registros pero sin
-  // cantidad disponible".
+
   return { lineas: lineas, cubierto: cantidadNecesaria - restante, faltante: restante, rowCount: rows.length };
 }
 
@@ -730,11 +652,7 @@ function renderFifoPanel(doc) {
     var vacio = document.createElement('div');
     vacio.className = 'hint';
     if (!estado.rowCount) {
-      // 0 filas del dataset: lo más probable es que el item no exista tal
-      // cual en ITEM_NUMBER_SECOND, que no haya inventario en los Branch/
-      // Plant configurados (BRANCH_CODES), o que los field IDs no sean los
-      // reales (revisa la consola del navegador: ahí queda la query y la
-      // respuesta cruda de cada Branch/Plant).
+
       vacio.textContent =
         'No se encontró inventario para el item "' + doc.content.item + '" en los Branch/Plant ' + BRANCH_CODES.join('/') +
         '. Revisa la consola del navegador (se imprime la query exacta) o confirma que "' + doc.content.item + '" existe tal cual en el dataset.';
@@ -783,7 +701,7 @@ function th(text) {
   return el;
 }
 
-// ---------- RELEASE — solo Almacén ----------
+
 function buildReleaseCell(doc) {
   var c = doc.content;
   var td = document.createElement('td');
@@ -908,7 +826,6 @@ function buildInlineCapture(placeholder, valorInicial, onConfirm) {
   return wrapper;
 }
 
-// ---------- SEMÁFORO (solo lectura) ----------
 function renderSemaforoTable() {
   var filtro = buscarSemaforoInput.value.trim().toLowerCase();
   var mostrarCompletadas = mostrarCompletadasSemaforoInput.checked;
@@ -981,9 +898,6 @@ function nivelSemaforo(c) {
   return 'rojo';
 }
 
-// Cuenta por rubro sobre las filas que ya se filtraron (buscador +
-// "Mostrar completadas"), para que las tarjetas siempre coincidan con lo
-// que se ve en la tabla de abajo.
 function renderSemaforoCards(rows) {
   var conteos = { verde: 0, amarillo: 0, rojo: 0 };
   rows.forEach(function (doc) {
@@ -1006,7 +920,6 @@ function formatTiempo(c) {
   return formatTiempoRespuesta(c);
 }
 
-// ---------- Helpers ----------
 function cell(text, cls) {
   var td = document.createElement('td');
   if (cls) td.className = cls;

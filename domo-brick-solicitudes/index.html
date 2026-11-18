@@ -4,11 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Solicitudes</title>
-  <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="brick-container">
-
     <div class="topbar">
       <div class="tabs">
         <button id="tabBtnAlta" class="tab-btn active">Alta</button>
@@ -18,14 +16,8 @@
       <div class="user-badge">
         <span id="userLabel">Identificando usuario...</span>
         <span id="roleBadge" class="role-badge"></span>
-        <span id="identidadManual" class="inline-action" style="display:none;">
-          <input type="text" id="miNombreInput" placeholder="Tu nombre" />
-          <button id="btnGuardarNombre" class="small">Guardar</button>
-        </span>
       </div>
     </div>
-    <span class="hint" id="identidadHint" style="display:none;">No se pudo detectar tu usuario de DOMO automáticamente en este brick: escribe tu nombre arriba, se recordará en este navegador.</span>
-
     <div id="statusMsg" class="status-msg"></div>
     <div id="loading" class="loading" style="display:none;">Cargando...</div>
 
@@ -33,21 +25,28 @@
     <div id="tabAlta">
 
       <div class="section-header">
-        <h3>Nueva solicitud (Alta)</h3>
+        <h3>Nueva solicitud</h3>
       </div>
       <div class="filters-row">
         <div class="filter-group">
-          <label for="solicitanteInput">Quien solicita</label>
-          <input type="text" id="solicitanteInput" placeholder="Nombre de quien solicita" />
+          <label for="solicitanteInput" hidden="hidden">Quien solicita</label>
+          <input type="text" id="solicitanteInput" placeholder="Se llenará con tu usuario de DOMO" hidden="hidden " />
         </div>
         <div class="filter-group">
           <label for="itemInput">Item</label>
-          <input type="text" id="itemInput" placeholder="Ej: 1001A" />
+          <input type="text" id="itemInput" list="itemOptions" placeholder="Ej: 1001A" autocomplete="off" />
+          <datalist id="itemOptions"></datalist>
         </div>
         <div class="filter-group">
           <label for="lineaInput">Línea</label>
-          <select id="lineaInput">
-            <option value="" disabled selected>Selecciona línea</option>
+          <select id="lineaInput" >
+            <option value="">SELECT--</option>
+            <option value="L1">L1</option>
+            <option value="L2">L2</option>
+            <option value="L3">L3</option>
+            <option value="L4">L4</option>
+            <option value="L5">L5</option>
+            <option value="L6">L6</option>
           </select>
         </div>
         <div class="filter-group">
@@ -58,7 +57,6 @@
           <button id="btnCrear">Registrar solicitud</button>
         </div>
       </div>
-      <span class="hint">Folio, fecha/hora y estatus (Pendiente) se asignan automáticamente. Aquí solo se crea: para Asignar/Release ve a la pestaña "Asignar / Release".</span>
 
       <div class="section-header">
         <h3>Mis solicitudes</h3>
@@ -114,7 +112,7 @@
           </label>
         </div>
       </div>
-      <span class="hint" id="inventarioHint">Solo Almacén puede Asignar/Release. Selecciona el dataset de Inventario con el botón de la esquina inferior izquierda del brick (se usa para sugerir localidades FIFO al Asignar).</span>
+      <span class="hint" id="inventarioHint">Solo Almacén puede Asignar/Release. </span>
 
       <div class="table-wrapper">
         <table id="solicitudesTable">
@@ -143,22 +141,20 @@
     <div id="tabSemaforo" style="display:none;">
 
       <div class="section-header">
-        <h3>Semáforo (aging de solicitudes)</h3>
       </div>
-      <span class="hint">Solo lectura. Se refresca solo cada minuto para que el aging se mantenga al día. Los conteos reflejan lo que muestra la tabla de abajo (respetan el buscador y "Mostrar completadas").</span>
 
       <div class="semaforo-cards">
         <div class="semaforo-card semaforo-card-verde">
           <span class="semaforo-card-count" id="countVerde">0</span>
-          <span class="semaforo-card-label">Verde (&lt;30 min)</span>
+          <span class="semaforo-card-label">&lt;30 min</span>
         </div>
         <div class="semaforo-card semaforo-card-amarillo">
           <span class="semaforo-card-count" id="countAmarillo">0</span>
-          <span class="semaforo-card-label">Amarillo (&lt;45 min)</span>
+          <span class="semaforo-card-label">&lt;45 min</span>
         </div>
         <div class="semaforo-card semaforo-card-rojo">
           <span class="semaforo-card-count" id="countRojo">0</span>
-          <span class="semaforo-card-label">Rojo (&ge;45 min)</span>
+          <span class="semaforo-card-label">&ge;45 min</span>
         </div>
       </div>
 
@@ -197,7 +193,5 @@
     </div>
 
   </div>
-
-  <script src="app.js"></script>
 </body>
 </html>
