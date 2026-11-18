@@ -14,18 +14,22 @@
       <button id="tabBtnMovimientos" class="tab-btn">Entradas / Salidas</button>
       <button id="tabBtnCatalogo" class="tab-btn">Catálogo</button>
       <button id="tabBtnEtiquetas" class="tab-btn">Etiquetas</button>
+      <button id="tabBtnUsuarios" class="tab-btn">Usuarios</button>
     </div>
     <div class="user-badge">
       <span class="user-badge-label">Usuario activo:</span>
       <span id="userLabel">Identificando usuario...</span>
+      <span id="roleBadge" class="pill"></span>
     </div>
   </div>
+  <div id="avisoUsuarios" class="alert-banner" style="display:none"></div>
   <div id="alertaMinimo" class="alert-banner" style="display:none"></div>
   <div id="statusMsg" class="status-msg"></div><div id="loading" class="loading" style="display:none">Cargando...</div>
   <datalist id="materialesList"></datalist>
   <datalist id="categoriasList"></datalist>
   <datalist id="proveedoresNumList"></datalist>
   <datalist id="proveedoresList"></datalist>
+  <datalist id="domoUsersList"></datalist>
 
   <!-- ================= INVENTARIO ================= -->
   <section id="tabInventario">
@@ -35,6 +39,7 @@
       <div class="kpi-card kpi-naranja"><span class="kpi-count" id="kpiMinimo">0</span><span class="kpi-label">En mínimo / reordenar</span></div>
       <div class="kpi-card kpi-azul"><span class="kpi-count" id="kpiSobreMax">0</span><span class="kpi-label">Sobre máximo</span></div>
       <div class="kpi-card"><span class="kpi-count" id="kpiPendientes">0</span><span class="kpi-label">Solicitudes pendientes</span></div>
+      <div class="kpi-card kpi-verde"><span class="kpi-count kpi-money" id="kpiValor">$0</span><span class="kpi-label" id="kpiValorLabel">Valor del inventario</span></div>
     </div>
     <div class="section-header"><h3>Inventario actual</h3><div><button id="btnExportarInv" class="secondary small">Exportar CSV</button><button id="btnRefrescarInventario" class="secondary small">Refrescar</button></div></div>
     <div class="filters-row">
@@ -45,8 +50,8 @@
         <option value="sin">Sin stock</option><option value="min">En mínimo</option><option value="ok">OK</option>
         <option value="max">Sobre máximo</option><option value="na">Sin mín/máx</option></select></div>
     </div>
-    <span class="hint">Stock = stock inicial + entradas − salidas ± ajustes. Comprometido = cantidad en solicitudes pendientes de entregar. Sugerido a pedir = máximo − stock cuando el material llegó al mínimo.</span>
-    <div class="table-wrapper"><table><thead><tr><th>Estado</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor</th><th>Ubicación</th><th>Unidad</th><th>Stock</th><th>Comprometido</th><th>Disponible</th><th>Mín</th><th>Máx</th><th>Sugerido a pedir</th><th>Lead time (días)</th><th>Último movimiento</th></tr></thead><tbody id="inventarioTbody"></tbody></table></div>
+    <span class="hint">Stock = stock inicial + entradas − salidas ± ajustes. Comprometido = cantidad en solicitudes pendientes de entregar. Sugerido a pedir = máximo − stock cuando el material llegó al mínimo. Valor = stock × costo unitario.</span>
+    <div class="table-wrapper"><table><thead><tr><th>Estado</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor</th><th>Ubicación</th><th>Unidad</th><th>Stock</th><th>Comprometido</th><th>Disponible</th><th>Mín</th><th>Máx</th><th>Sugerido a pedir</th><th>Costo unitario</th><th>Valor inventario</th><th>Lead time (días)</th><th>Último movimiento</th></tr></thead><tbody id="inventarioTbody"></tbody></table></div>
   </section>
 
   <!-- ================= SOLICITAR ================= -->
@@ -108,7 +113,7 @@
       <div class="filter-group"><label>Tipo</label><select id="movFiltroTipo"><option value="">Todos</option><option>Entrada</option><option>Salida</option><option>Ajuste</option></select></div>
       <div class="filter-group"><label>Buscar</label><input id="movBuscar" type="text" placeholder="Código / referencia / persona / usuario"></div>
     </div>
-    <div class="table-wrapper"><table><thead><tr><th>Fecha/hora</th><th>Tipo</th><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Stock anterior</th><th>Stock resultante</th><th>Referencia</th><th>Folio solicitud</th><th>Entregado a / Recibido de</th><th>Notas</th><th>Registró</th></tr></thead><tbody id="movimientosTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Fecha/hora</th><th>Tipo</th><th>Código</th><th>Descripción</th><th>Cantidad</th><th>Costo unitario</th><th>Valor</th><th>Stock anterior</th><th>Stock resultante</th><th>Referencia</th><th>Folio solicitud</th><th>Entregado a / Recibido de</th><th>Notas</th><th>Registró</th></tr></thead><tbody id="movimientosTbody"></tbody></table></div>
   </section>
 
   <!-- ================= CATÁLOGO ================= -->
@@ -125,6 +130,7 @@
       <div class="filter-group"><label for="catProveedorNum">Proveedor #</label><input id="catProveedorNum" type="text" list="proveedoresNumList" autocomplete="off"></div>
       <div class="filter-group grow"><label for="catProveedor">Proveedor</label><input id="catProveedor" type="text" list="proveedoresList" autocomplete="off"></div>
       <div class="filter-group small-w"><label for="catLeadTime">Lead time (días hábiles)</label><input id="catLeadTime" type="number" min="0" step="1"></div>
+      <div class="filter-group small-w"><label for="catCostoUnitario" id="catCostoLabel">Costo unitario</label><input id="catCostoUnitario" type="number" min="0" step="0.01"></div>
       <div class="filter-group small-w"><label for="catStockInicial">Stock inicial</label><input id="catStockInicial" type="number" min="0" step="1"></div>
     </div>
     <div class="filters-row">
@@ -145,11 +151,11 @@
       <button id="btnTogglePegar" class="secondary">Pegar desde Excel</button>
     </div>
     <div id="pegarBox" class="pegar-box" style="display:none">
-      <span class="hint">Copia las filas de Excel con estas columnas en este orden: Código, Descripción, Categoría, Proveedor #, Proveedor, Lead time, Unidad, Ubicación, Mínimo, Máximo, Stock inicial. Los códigos que ya existen se omiten.</span>
+      <span class="hint">Copia las filas de Excel con estas columnas en este orden: Código, Descripción, Categoría, Proveedor #, Proveedor, Lead time, Unidad, Ubicación, Mínimo, Máximo, Stock inicial, Costo unitario. Los códigos que ya existen se omiten.</span>
       <textarea id="pegarTexto" rows="6" placeholder="Pega aquí las filas copiadas de Excel"></textarea>
       <div><button id="btnImportarPegado">Importar</button></div>
     </div>
-    <div class="table-wrapper"><table><thead><tr><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor #</th><th>Proveedor</th><th>Lead time</th><th>Unidad</th><th>Ubicación</th><th>Mín</th><th>Máx</th><th>Activo</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="catalogoTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor #</th><th>Proveedor</th><th>Lead time</th><th>Unidad</th><th>Ubicación</th><th>Mín</th><th>Máx</th><th>Costo unitario</th><th>Activo</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="catalogoTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ETIQUETAS ================= -->
@@ -188,6 +194,23 @@
       <textarea id="zplOutput" rows="14" readonly placeholder="Aquí aparecerá el código ZPL generado"></textarea>
       <div class="zpl-preview"><img id="zplPreview" alt="Vista previa de la primera etiqueta" style="display:none"></div>
     </div>
+  </section>
+
+  <!-- ================= USUARIOS ================= -->
+  <section id="tabUsuarios" style="display:none">
+    <div class="section-header"><h3>Control de usuarios</h3><button id="btnRefrescarUsuarios" class="secondary small">Refrescar</button></div>
+    <span class="hint">Los usuarios registrados y activos ven todos los apartados. Quien no esté registrado solo ve Inventario y Solicitar.</span>
+    <div class="filters-row">
+      <div class="filter-group grow"><label for="usrDomoInput">Usuario de DOMO</label><input id="usrDomoInput" type="text" list="domoUsersList" placeholder="Busca por nombre o escribe el ID de DOMO" autocomplete="off"></div>
+      <div class="filter-group"><label for="usrNombreInput">Nombre</label><input id="usrNombreInput" type="text"></div>
+      <button id="btnAgregarUsuario">Agregar usuario</button>
+      <button id="btnAgregarmeUsuario" class="secondary">Agregarme a mí</button>
+    </div>
+    <div class="filters-row">
+      <div class="filter-group"><label>Buscar</label><input id="buscarUsr" type="text" placeholder="Nombre / ID"></div>
+      <label class="check"><input id="mostrarInactivosUsr" type="checkbox"> Mostrar inactivos</label>
+    </div>
+    <div class="table-wrapper"><table><thead><tr><th>Nombre</th><th>ID DOMO</th><th>Activo</th><th>Alta</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="usuariosTbody"></tbody></table></div>
   </section>
 </div>
 

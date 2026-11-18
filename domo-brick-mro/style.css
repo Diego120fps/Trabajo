@@ -101,3 +101,9 @@ tr.inactivo td{color:#9aa1a9}
 .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:4px}
 /* Las casillas no deben heredar el ancho de los inputs */
 input[type=checkbox]{min-width:0 !important;width:auto !important;margin:0}
+
+/* Valor de inventario y roles */
+.kpi-verde{background:#eafaf1}.kpi-verde .kpi-count{color:#1e8449}
+.kpi-money{font-size:28px}
+.rol-admin{background:#dff3e6;color:#1e8449}
+.rol-solicitante{background:#eef2f7;color:#4d4d4d}

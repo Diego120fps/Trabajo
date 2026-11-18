@@ -6,17 +6,23 @@ var domo=window.domo;
 var CAT_COLLECTION='mro_catalogo';
 var MOV_COLLECTION='mro_movimientos';
 var SOL_COLLECTION='mro_solicitudes';
+var USR_COLLECTION='mro_usuarios';
+// Moneda del costo unitario y del valor del inventario.
+var MONEDA='USD';
 var DOCS=function(c){return '/domo/datastores/v1/collections/'+c+'/documents';};
-var CAT_URL=DOCS(CAT_COLLECTION), MOV_URL=DOCS(MOV_COLLECTION), SOL_URL=DOCS(SOL_COLLECTION);
+var CAT_URL=DOCS(CAT_COLLECTION), MOV_URL=DOCS(MOV_COLLECTION), SOL_URL=DOCS(SOL_COLLECTION), USR_URL=DOCS(USR_COLLECTION);
 var REFRESH_MS=300000, PAGE=1000;
-var TABS=['Inventario','Solicitar','Entregas','Movimientos','Catalogo','Etiquetas'];
+var TABS=['Inventario','Solicitar','Entregas','Movimientos','Catalogo','Etiquetas','Usuarios'];
+// Pestañas visibles para usuarios no registrados en mro_usuarios.
+var TABS_PUBLICAS=['Inventario','Solicitar'];
 
 // Datos tomados de CONTROL_MRO_1.xlsm (hojas Inventario y Movimientos).
 var SEED_CATALOGO=[{"codigo": "MROBAG1", "descripcion": "BOLSA 9X12", "categoria": "PRODUCTION LINE", "proveedorNum": "843575", "proveedor": "CP PACK SA DE CV", "leadTimeDias": 10}, {"codigo": "MROBAG2", "descripcion": "BOLSA 12X16", "categoria": "PRODUCTION LINE", "proveedorNum": "843575", "proveedor": "CP PACK SA DE CV", "leadTimeDias": 10}, {"codigo": "MROCNC1", "descripcion": "NAVAJAS CNC", "categoria": "PRODUCTION LINE", "proveedorNum": "842209", "proveedor": "EASTMAN MACHINE COMPANY", "leadTimeDias": 45}, {"codigo": "MROCNC2", "descripcion": "PLUMAS CNC", "categoria": "PRODUCTION LINE", "proveedorNum": "842209", "proveedor": "EASTMAN MACHINE COMPANY", "leadTimeDias": 45}, {"codigo": "MROCNC3", "descripcion": "PLUMA CNC TRX", "categoria": "PRODUCTION LINE", "proveedorNum": "842934", "proveedor": "MID-STATES BOLT & SCREW LLC", "leadTimeDias": 45}, {"codigo": "MROCONS1", "descripcion": "Paño microfibra 40 X 40 cm amarillo FOY-MF44", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 5}, {"codigo": "MROCONS2", "descripcion": "Grapas 1 1/4\" S-22480", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 5}, {"codigo": "MROCONS3", "descripcion": "SHARPIE PLATA PUNTO FINO", "categoria": "PRODUCTION LINE", "proveedorNum": "843247", "proveedor": "GERARDO PARTIDA LANDEROS", "leadTimeDias": 5}, {"codigo": "MROCONS4", "descripcion": "PUNTA INSERTO PH2 MILWAUKEE-48-32-4601", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 10}, {"codigo": "MROCONS5", "descripcion": "EXTENSIONES MAGNÉTICAS MILWAUKEE-48-32-45-15", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 10}, {"codigo": "MROCONS6", "descripcion": "3M 94 Base para Cinta Adhesiva - 1⁄2 S-17444", "categoria": "PRODUCTION LINE", "proveedorNum": "801169", "proveedor": "EMPAQUES Y SUMINISTROS ORZA SA DE CV", "leadTimeDias": 5}, {"codigo": "MROCONS7", "descripcion": "S-20621BL Markal Punta Mediana", "categoria": "PRODUCTION LINE", "proveedorNum": "800097", "proveedor": "GRAINGER SA DE CV", "leadTimeDias": 5}, {"codigo": "MROCONS8", "descripcion": "PUNTA CLAVADORA MAK-HY00000911", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 10}, {"codigo": "MROCONS9", "descripcion": "ESI FELT TIP APPLICATOR 0.750\" x 0.312\"", "categoria": "PRODUCTION LINE", "proveedorNum": "843179", "proveedor": "Extruded Solutions, Inc.", "leadTimeDias": 30}, {"codigo": "MROCONS10", "descripcion": "Punta URR-4770-3/16 atornillador ingersol para atornillado de corner brace", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 20}, {"codigo": "MROPACK1", "descripcion": "CINTA SHURTAPE", "categoria": "PRODUCTION LINE", "proveedorNum": "801169", "proveedor": "EMPAQUES Y SUMINISTROS ORZA SA DE CV", "leadTimeDias": 5}, {"codigo": "MROPACK2", "descripcion": "RUBBER BAND NATURAL #18 80g c/u", "categoria": "PRODUCTION LINE", "proveedorNum": "801169", "proveedor": "EMPAQUES Y SUMINISTROS ORZA SA DE CV", "leadTimeDias": 5}, {"codigo": "MROPACK3", "descripcion": "Crumble paper", "categoria": "PRODUCTION LINE", "proveedorNum": "802627", "proveedor": "ECO FITPACK SAS DE CV", "leadTimeDias": 7}, {"codigo": "MROPACK4", "descripcion": "FILL PACK", "categoria": "PRODUCTION LINE", "proveedorNum": "802627", "proveedor": "ECO FITPACK SAS DE CV", "leadTimeDias": 7}, {"codigo": "MROPACK4", "descripcion": "Pelicula plastica 19x5000CA80N", "categoria": "PACKAGING", "proveedorNum": "801169", "proveedor": "EMPAQUES Y SUMINISTROS ORZA SA DE CV", "leadTimeDias": 5}, {"codigo": "MROPACK5", "descripcion": "FLEJE BLANCO 12mm", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 10}, {"codigo": "40000005", "descripcion": "Wooden Pallet 80\"X 45\"", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "40000004", "descripcion": "Pallet - 76\" X 48\" (Gm – Brown)", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "40000006", "descripcion": "Pallet 86\" X 48\" (Stellantis – Green)", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "40000007", "descripcion": "Pallet 73.5\" X 40\" (Ford – Purple)", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "40000008", "descripcion": "Pallet 90\" X 48\" (Toyota – Nissan – Silver)", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "1704652", "descripcion": "Tarima 42X101", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "1704857", "descripcion": "Tarima 42X84", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "401S0002", "descripcion": "Tarima De Madera De 74\" X 32\"", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "401S0003", "descripcion": "Tarima De Madera De 83\" X 48\"", "categoria": "SHIPPING", "proveedorNum": "843300", "proveedor": "TABEL PALLET", "leadTimeDias": 5}, {"codigo": "MROPRIN1", "descripcion": "LABEL Polyester Matte Plata 4x.75 in", "categoria": "PRODUCTION LINE", "proveedorNum": "802419", "proveedor": "RS FLEXOGRAFICA S DE RL DE CV", "leadTimeDias": 20}, {"codigo": "MROPRIN2", "descripcion": "RIBBON 4 x 6 D*0433*1182*W", "categoria": "PRODUCTION LINE", "proveedorNum": "802419", "proveedor": "RS FLEXOGRAFICA S DE RL DE CV", "leadTimeDias": 10}, {"codigo": "MROPRIN3", "descripcion": "RIBBON 4 x .75 #05095GS11007", "categoria": "PRODUCTION LINE", "proveedorNum": "802419", "proveedor": "RS FLEXOGRAFICA S DE RL DE CV", "leadTimeDias": 10}, {"codigo": "MROSEWI1", "descripcion": "T-135 blk. polyester style M p", "categoria": "PRODUCTION LINE", "proveedorNum": "843249", "proveedor": "AMERICAN & EFIRD LLC", "leadTimeDias": 80}, {"codigo": "MROSEWI2", "descripcion": "T-135 polyester thread 2 lb sp", "categoria": "PRODUCTION LINE", "proveedorNum": "843249", "proveedor": "AMERICAN & EFIRD LLC", "leadTimeDias": 80}, {"codigo": "MROSEWI3", "descripcion": "BOBINAS COATS (CAJA)", "categoria": "PRODUCTION LINE", "proveedorNum": "843361", "proveedor": "COATS MEXICO", "leadTimeDias": 40}, {"codigo": "MROSEWI4", "descripcion": "CARRETES COATS", "categoria": "PRODUCTION LINE", "proveedorNum": "843361", "proveedor": "COATS MEXICO", "leadTimeDias": 40}, {"codigo": "MROSEWI5", "descripcion": "140/22 R SCHMETZ NEEDLES", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 30}, {"codigo": "MROSEWI6", "descripcion": "160/23 SCHMETZ NEEDLES", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 30}, {"codigo": "MROSEWI7", "descripcion": "180/24 SCHMETZ NEEDLES", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 30}, {"codigo": "MROSEWI8", "descripcion": "SPRAY_DRY SILICONE LUBRICANT", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 10}, {"codigo": "MROSHIP1", "descripcion": "Sellos alta seguridad amarillos H-435Y", "categoria": "SHIPPING", "proveedorNum": "843575", "proveedor": "CP PACK SA DE CV", "leadTimeDias": 20}, {"codigo": "MROSHIP2", "descripcion": "Bolsas industriales 48 x 84 S-14354S", "categoria": "SHIPPING", "proveedorNum": "843575", "proveedor": "CP PACK SA DE CV", "leadTimeDias": 30}, {"codigo": "MROSTRE1", "descripcion": "Clear Cast Stretch Banding Fil", "categoria": "SHIPPING", "proveedorNum": "801169", "proveedor": "EMPAQUES Y SUMINISTROS ORZA SA DE CV", "leadTimeDias": 5}, {"codigo": "MROTOOL1", "descripcion": "TIJERAS ALUMINIO 8 SUR-T10", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 10}, {"codigo": "MROTOOL2", "descripcion": "PINZA BUCKLES URR-PRES2", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 10}, {"codigo": "MROTOOL3", "descripcion": "TIJERAS KNIPEX-6701200SB-02", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 10}, {"codigo": "MROTOOL4", "descripcion": "TIJERAS KNIPEX-9455200-00", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 30}, {"codigo": "MROTOOL5", "descripcion": "MAZO GOMA 8 OZ URR-1366", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 5}, {"codigo": "MROTOOL6", "descripcion": "H-464O Despachador cinta - 2\", Naranja, 48 mm", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 5}, {"codigo": "MROTOOL7", "descripcion": "TIJERAS DESHEBRAR", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 20}, {"codigo": "MROTOOL8", "descripcion": "WISS Scissors Stainless Steel", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 20}, {"codigo": "MROTOOL9", "descripcion": "TIJERAS COSTURA KAI 10\" ZURDO", "categoria": "PRODUCTION LINE", "proveedorNum": "843275", "proveedor": "MAQUINAS Y REFACCIONES MONTENEGRO", "leadTimeDias": 20}, {"codigo": "MROTOOL10", "descripcion": "TIJERAS DE ELECTRICISTA", "categoria": "PRODUCTION LINE", "proveedorNum": "801254", "proveedor": "REP. INDUSTRIALES DINAMICAS SA DE CV", "leadTimeDias": 20}];
 var SEED_MOVIMIENTOS=[{"fecha": "2026-10-19", "codigo": "MROBAG1", "tipo": "Entrada", "cantidad": 2000, "notas": "OC 331521"}, {"fecha": "2026-10-19", "codigo": "MROBAG2", "tipo": "Entrada", "cantidad": 4000, "notas": "OC 323423"}, {"fecha": "2026-10-19", "codigo": "MROCONS2", "tipo": "Entrada", "cantidad": 2000, "notas": ""}];
 
 // ================= Estado =================
-var catalogo=[], movimientos=[], solicitudes=[];
+var catalogo=[], movimientos=[], solicitudes=[], usuarios=[], domoUsers=[];
+var ES_ADMIN=false, SIN_USUARIOS=false, tabActual='Inventario';
 var info={};          // codigo -> {stock, comprometido, disponible, ultimoMov, estado}
 var carrito=[];       // [{codigo, cantidad}]
 var selEtq={};        // codigo -> copias
@@ -62,6 +68,12 @@ function init(){
   $('btnSeed').onclick=importarSeed;
   $('btnTogglePegar').onclick=function(){var b=$('pegarBox');b.style.display=b.style.display==='none'?'':'none';};
   $('btnImportarPegado').onclick=importarPegado;
+  // Usuarios
+  $('btnAgregarUsuario').onclick=agregarUsuario;
+  $('btnAgregarmeUsuario').onclick=function(){$('usrDomoInput').value=CURRENT_USER.id||'';$('usrNombreInput').value=CURRENT_USER.id?CURRENT_USER.label:'';agregarUsuario();};
+  $('usrDomoInput').addEventListener('input',function(){var u=domoUserDesdeInput(this.value);if(u)$('usrNombreInput').value=u.nombre;});
+  $('buscarUsr').addEventListener('input',renderUsuarios);
+  $('mostrarInactivosUsr').addEventListener('change',renderUsuarios);
   // Etiquetas
   ['buscarEtq','filtroCategoriaEtq'].forEach(function(id){$(id).addEventListener('input',renderEtiquetas);});
   $('btnSelVisibles').onclick=function(){etqVisibles().forEach(function(m){if(!selEtq[m.codigo])selEtq[m.codigo]=1;});renderEtiquetas();};
@@ -74,14 +86,18 @@ function init(){
   // Modal
   $('motivoCerrar').onclick=cerrarModal;
 
+  $('catCostoLabel').textContent='Costo unitario ('+MONEDA+')';
+  aplicarPermisos();
   renderMovForm();
   ensureCollections()
     .then(cargarUsuarioActual)
-    .then(cargarDatos)
+    .then(function(){cargarDomoUsers();return cargarDatos();})
     .catch(function(e){showError('Error al inicializar: '+errText(e));});
   setInterval(cargarDatos,REFRESH_MS);
 }
 function switchTab(tab){
+  if(!puedeVer(tab))tab='Inventario';
+  tabActual=tab;
   TABS.forEach(function(t){
     $('tab'+t).style.display=t===tab?'':'none';
     $('tabBtn'+t).classList.toggle('active',t===tab);
@@ -127,8 +143,9 @@ function ensureOneCollection(name,columns){
 function cols(spec){return spec.split(',').map(function(p){var x=p.split(':');return {name:x[0].trim(),type:x[1]||'STRING'};});}
 function ensureCollections(){
   return Promise.all([
-    ensureOneCollection(CAT_COLLECTION,cols('codigo,descripcion,categoria,proveedorNum,proveedor,leadTimeDias:LONG,unidad,ubicacion,aplicaMinMax,minimo:DOUBLE,maximo:DOUBLE,stockInicial:DOUBLE,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
-    ensureOneCollection(MOV_COLLECTION,cols('fechaHora,tipo,codigo,descripcion,cantidad:DOUBLE,efecto:DOUBLE,stockAnterior:DOUBLE,stockResultante:DOUBLE,referencia,persona,notas,folioSolicitud:LONG,usuario,usuarioId')),
+    ensureOneCollection(CAT_COLLECTION,cols('codigo,descripcion,categoria,proveedorNum,proveedor,leadTimeDias:LONG,unidad,ubicacion,aplicaMinMax,minimo:DOUBLE,maximo:DOUBLE,stockInicial:DOUBLE,costoUnitario:DOUBLE,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
+    ensureOneCollection(MOV_COLLECTION,cols('fechaHora,tipo,codigo,descripcion,cantidad:DOUBLE,efecto:DOUBLE,costoUnitario:DOUBLE,valor:DOUBLE,stockAnterior:DOUBLE,stockResultante:DOUBLE,referencia,persona,notas,folioSolicitud:LONG,usuario,usuarioId')),
+    ensureOneCollection(USR_COLLECTION,cols('userId,nombre,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
     ensureOneCollection(SOL_COLLECTION,cols('folio:LONG,linea:LONG,fechaSolicitud,solicitante,solicitanteId,area,comentario,codigo,descripcion,unidad,cantidadSolicitada:DOUBLE,estatus,cantidadEntregada:DOUBLE,entregadoPor,entregadoPorId,recibe,fechaEntrega,motivo,fechaCierre,usuarioCierre,usuarioCierreId'))
   ]);
 }
@@ -146,9 +163,10 @@ function getAll(url){
 // Recarga todo y recalcula; rechaza si falla (se usa antes de validar stock).
 function recargar(){
   setBusy(true);
-  return Promise.all([getAll(CAT_URL),getAll(MOV_URL),getAll(SOL_URL)])
+  return Promise.all([getAll(CAT_URL),getAll(MOV_URL),getAll(SOL_URL),getAll(USR_URL)])
     .then(function(r){
-      catalogo=r[0];movimientos=r[1];solicitudes=r[2];
+      catalogo=r[0];movimientos=r[1];solicitudes=r[2];usuarios=r[3];
+      calcularPermisos();
       calcularInventario();
       renderAll();
     })
@@ -214,6 +232,8 @@ function renderAll(){
   renderMovimientos();
   renderCatalogo();
   renderEtiquetas();
+  renderUsuarios();
+  aplicarPermisos();
   $('btnSeed').style.display=catalogo.length?'none':'';
 }
 function renderListas(){
@@ -262,10 +282,12 @@ function renderInventario(){
   var act=activos(),cuenta={sin:0,min:0,max:0};
   act.forEach(function(d){var e=infoDe(d.content.codigo).estado;if(cuenta[e]!==undefined)cuenta[e]++;});
   $('kpiActivos').textContent=act.length;$('kpiSinStock').textContent=cuenta.sin;$('kpiMinimo').textContent=cuenta.min;$('kpiSobreMax').textContent=cuenta.max;
+  var valor=act.reduce(function(a,d){var s=infoDe(d.content.codigo).stock;return a+(s>0?s*num(d.content.costoUnitario):0);},0);
+  $('kpiValor').textContent=fmtMoney(valor);$('kpiValorLabel').textContent='Valor del inventario ('+MONEDA+')';
   $('kpiPendientes').textContent=foliosUnicos(solicitudes.filter(function(d){return d.content.estatus==='Pendiente';})).length;
   var body=$('inventarioTbody');body.innerHTML='';
   var rows=invFiltrado();
-  if(!rows.length){empty(body,15,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Ve a Catálogo para importar el Excel o dar de alta materiales.');return;}
+  if(!rows.length){empty(body,17,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Ve a Catálogo para importar el Excel o dar de alta materiales.');return;}
   rows.forEach(function(d){
     var m=d.content,i=infoDe(m.codigo),tr=document.createElement('tr');
     addPill(tr,ESTADO_TXT[i.estado],'st-'+i.estado);
@@ -274,15 +296,17 @@ function renderInventario(){
     addNum(tr,aplicaMinMax(m)&&tieneValor(m.minimo)?num(m.minimo):'');
     addNum(tr,aplicaMinMax(m)&&tieneValor(m.maximo)?num(m.maximo):'');
     addNum(tr,i.sugerido);
+    addMoney(tr,tieneValor(m.costoUnitario)?num(m.costoUnitario):null);
+    addMoney(tr,tieneValor(m.costoUnitario)?Math.max(0,i.stock)*num(m.costoUnitario):null);
     addNum(tr,m.leadTimeDias);
     add(tr,fmtDateTime(i.ultimoMov));
     body.appendChild(tr);
   });
 }
 function exportarInventario(){
-  var rows=[['Estado','Código','Descripción','Categoría','Proveedor #','Proveedor','Ubicación','Unidad','Stock','Comprometido','Disponible','Mínimo','Máximo','Sugerido a pedir','Lead time','Último movimiento']];
+  var rows=[['Estado','Código','Descripción','Categoría','Proveedor #','Proveedor','Ubicación','Unidad','Stock','Comprometido','Disponible','Mínimo','Máximo','Sugerido a pedir','Costo unitario ('+MONEDA+')','Valor inventario ('+MONEDA+')','Lead time','Último movimiento']];
   invFiltrado().forEach(function(d){var m=d.content,i=infoDe(m.codigo);
-    rows.push([ESTADO_TXT[i.estado],m.codigo,m.descripcion,m.categoria,m.proveedorNum,m.proveedor,m.ubicacion,m.unidad,i.stock,i.comprometido,i.disponible,aplicaMinMax(m)?m.minimo:'',aplicaMinMax(m)?m.maximo:'',i.sugerido,m.leadTimeDias,fmtDateTime(i.ultimoMov)]);});
+    rows.push([ESTADO_TXT[i.estado],m.codigo,m.descripcion,m.categoria,m.proveedorNum,m.proveedor,m.ubicacion,m.unidad,i.stock,i.comprometido,i.disponible,aplicaMinMax(m)?m.minimo:'',aplicaMinMax(m)?m.maximo:'',i.sugerido,tieneValor(m.costoUnitario)?num(m.costoUnitario):'',tieneValor(m.costoUnitario)?Math.max(0,i.stock)*num(m.costoUnitario):'',m.leadTimeDias,fmtDateTime(i.ultimoMov)]);});
   descargar('inventario_mro.csv',toCsv(rows),'text/csv');
 }
 
@@ -350,7 +374,7 @@ function enviarSolicitud(){
 }
 function nextFolio(){var max=0;solicitudes.forEach(function(d){var n=num(d.content.folio);if(n>max)max=n;});return max+1;}
 function renderSolicitudes(){
-  var q=$('buscarSol').value.toLowerCase(),est=$('filtroEstatusSol').value,mias=$('soloMiasSol').checked,body=$('solicitudesTbody');
+  var q=$('buscarSol').value.toLowerCase(),est=$('filtroEstatusSol').value,mias=$('soloMiasSol').checked||!ES_ADMIN,body=$('solicitudesTbody');
   body.innerHTML='';
   var rows=solicitudes.filter(function(d){
     var c=d.content;
@@ -399,7 +423,7 @@ function renderEntregas(){
   });
 }
 function entregar(d,cantidad,recibe){
-  if(!requireUser())return;
+  if(!requireAdmin())return;
   var c=d.content;
   if(!(cantidad>0)){showError('Captura la cantidad a entregar.');return;}
   if(cantidad>num(c.cantidadSolicitada)){showError('No puedes entregar más de lo solicitado ('+c.cantidadSolicitada+').');return;}
@@ -425,6 +449,7 @@ function entregar(d,cantidad,recibe){
 }
 function cerrarSolicitud(d,estatus){
   if(!requireUser())return;
+  if(estatus==='Rechazada'&&!requireAdmin())return;
   var c=d.content;
   abrirModal((estatus==='Rechazada'?'Rechazar':'Cancelar')+' solicitud','Folio '+fmtFolio(c.folio)+' — '+c.codigo+' '+c.descripcion+' ('+c.cantidadSolicitada+').',function(motivo){
     setBusy(true);clearStatus();
@@ -437,8 +462,9 @@ function cerrarSolicitud(d,estatus){
 
 // ================= Entradas / Salidas / Ajustes =================
 function movimientoDoc(tipo,codigo,descripcion,cantidad,efecto,stockAnterior,referencia,persona,notas,folio,fecha){
+  var md=matDoc(codigo),costo=md?num(md.content.costoUnitario):0;
   return {fechaHora:fecha||new Date().toISOString(),tipo:tipo,codigo:codigo,descripcion:descripcion,
-    cantidad:cantidad,efecto:efecto,stockAnterior:stockAnterior,stockResultante:stockAnterior+efecto,
+    cantidad:cantidad,efecto:efecto,costoUnitario:costo,valor:Math.round(efecto*costo*100)/100,stockAnterior:stockAnterior,stockResultante:stockAnterior+efecto,
     referencia:referencia||'',persona:persona||'',notas:notas||'',folioSolicitud:folio||0,
     usuario:CURRENT_USER.label,usuarioId:CURRENT_USER.id};
 }
@@ -457,7 +483,7 @@ function renderMovStockInfo(){
   el.innerHTML=html;
 }
 function registrarMovimiento(){
-  if(!requireUser())return;
+  if(!requireAdmin())return;
   var tipo=$('movTipoInput').value,d=materialDesdeInput($('movMaterialInput').value),valor=$('movCantidadInput').value,
       ref=$('movReferenciaInput').value.trim(),persona=$('movPersonaInput').value.trim(),notas=$('movNotasInput').value.trim();
   if(!d){showError('Selecciona un material válido de la lista.');return;}
@@ -500,21 +526,22 @@ function movFiltrados(){
 function renderMovimientos(){
   var body=$('movimientosTbody');body.innerHTML='';
   var rows=movFiltrados();
-  if(!rows.length){empty(body,12,'No hay movimientos para los filtros seleccionados.');return;}
+  if(!rows.length){empty(body,14,'No hay movimientos para los filtros seleccionados.');return;}
   rows.forEach(function(d){
     var c=d.content,tr=document.createElement('tr');
     add(tr,fmtDateTime(c.fechaHora));
     var td=document.createElement('td');td.className='mov-'+c.tipo;td.textContent=c.tipo;tr.appendChild(td);
     add(tr,c.codigo);add(tr,c.descripcion);
     addNum(tr,(num(c.efecto)>0?'+':'')+num(c.efecto));
+    addMoney(tr,tieneValor(c.costoUnitario)?num(c.costoUnitario):null);addMoney(tr,tieneValor(c.valor)?num(c.valor):null);
     addNum(tr,c.stockAnterior);addNum(tr,c.stockResultante);
     add(tr,c.referencia);add(tr,c.folioSolicitud?fmtFolio(c.folioSolicitud):'');add(tr,c.persona);addWrap(tr,c.notas);add(tr,c.usuario);
     body.appendChild(tr);
   });
 }
 function exportarMovimientos(){
-  var rows=[['Fecha/hora','Tipo','Código','Descripción','Cantidad','Stock anterior','Stock resultante','Referencia','Folio solicitud','Entregado a / Recibido de','Notas','Registró']];
-  movFiltrados().forEach(function(d){var c=d.content;rows.push([fmtDateTime(c.fechaHora),c.tipo,c.codigo,c.descripcion,c.efecto,c.stockAnterior,c.stockResultante,c.referencia,c.folioSolicitud||'',c.persona,c.notas,c.usuario]);});
+  var rows=[['Fecha/hora','Tipo','Código','Descripción','Cantidad','Costo unitario ('+MONEDA+')','Valor ('+MONEDA+')','Stock anterior','Stock resultante','Referencia','Folio solicitud','Entregado a / Recibido de','Notas','Registró']];
+  movFiltrados().forEach(function(d){var c=d.content;rows.push([fmtDateTime(c.fechaHora),c.tipo,c.codigo,c.descripcion,c.efecto,c.costoUnitario,c.valor,c.stockAnterior,c.stockResultante,c.referencia,c.folioSolicitud||'',c.persona,c.notas,c.usuario]);});
   descargar('movimientos_mro.csv',toCsv(rows),'text/csv');
 }
 
@@ -535,6 +562,7 @@ function leerCatForm(){
     proveedor:$('catProveedor').value.trim(),
     leadTimeDias:num($('catLeadTime').value),
     stockInicial:num($('catStockInicial').value),
+    costoUnitario:$('catCostoUnitario').value!==''?num($('catCostoUnitario').value):null,
     aplicaMinMax:aplica?'SI':'NO',
     minimo:aplica&&$('catMinimo').value!==''?num($('catMinimo').value):null,
     maximo:aplica&&$('catMaximo').value!==''?num($('catMaximo').value):null
@@ -552,7 +580,7 @@ function validarMaterial(m,idActual){
   return '';
 }
 function guardarCatalogo(){
-  if(!requireUser())return;
+  if(!requireAdmin())return;
   var m=leerCatForm(),err=validarMaterial(m,editandoCat&&editandoCat.id);
   if(err){showError(err);return;}
   var ahora=new Date().toISOString(),p;
@@ -570,7 +598,7 @@ function guardarCatalogo(){
 }
 function limpiarCatForm(){
   editandoCat=null;
-  ['catCodigo','catDescripcion','catCategoria','catUnidad','catUbicacion','catProveedorNum','catProveedor','catLeadTime','catStockInicial','catMinimo','catMaximo'].forEach(function(id){$(id).value='';});
+  ['catCodigo','catDescripcion','catCategoria','catUnidad','catUbicacion','catProveedorNum','catProveedor','catLeadTime','catStockInicial','catCostoUnitario','catMinimo','catMaximo'].forEach(function(id){$(id).value='';});
   $('catAplicaMinMax').checked=false;$('catMinimo').disabled=$('catMaximo').disabled=true;
   $('catCodigo').readOnly=false;$('catStockInicial').disabled=false;
   $('catFormTitle').textContent='Nuevo material';
@@ -579,7 +607,7 @@ function editarCatalogo(d){
   var m=d.content;editandoCat=d;
   $('catCodigo').value=m.codigo;$('catDescripcion').value=m.descripcion||'';$('catCategoria').value=m.categoria||'';
   $('catUnidad').value=m.unidad||'';$('catUbicacion').value=m.ubicacion||'';$('catProveedorNum').value=m.proveedorNum||'';
-  $('catProveedor').value=m.proveedor||'';$('catLeadTime').value=m.leadTimeDias||'';$('catStockInicial').value=m.stockInicial||0;
+  $('catProveedor').value=m.proveedor||'';$('catLeadTime').value=m.leadTimeDias||'';$('catStockInicial').value=m.stockInicial||0;$('catCostoUnitario').value=tieneValor(m.costoUnitario)?m.costoUnitario:'';
   $('catAplicaMinMax').checked=aplicaMinMax(m);$('catMinimo').disabled=$('catMaximo').disabled=!aplicaMinMax(m);
   $('catMinimo').value=tieneValor(m.minimo)?m.minimo:'';$('catMaximo').value=tieneValor(m.maximo)?m.maximo:'';
   $('catCodigo').readOnly=true;$('catStockInicial').disabled=true;
@@ -587,7 +615,7 @@ function editarCatalogo(d){
   clearStatus();$('tabCatalogo').scrollIntoView({behavior:'smooth'});
 }
 function toggleActivo(d){
-  if(!requireUser())return;
+  if(!requireAdmin())return;
   var m=d.content,nuevo=m.activo==='NO'?'SI':'NO';
   setBusy(true);clearStatus();
   domo.put(CAT_URL+'/'+d.id,{content:Object.assign({},m,{activo:nuevo,fechaModificacion:new Date().toISOString(),usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})})
@@ -605,12 +633,13 @@ function renderCatalogo(){
     if(q&&[m.codigo,m.descripcion,m.proveedor,m.proveedorNum,m.ubicacion].join(' ').toLowerCase().indexOf(q)<0)return false;
     return true;
   }).sort(byCodigo);
-  if(!rows.length){empty(body,13,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Usa "Importar catálogo del Excel CONTROL_MRO" o da de alta materiales.');return;}
+  if(!rows.length){empty(body,14,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Usa "Importar catálogo del Excel CONTROL_MRO" o da de alta materiales.');return;}
   rows.forEach(function(d){
     var m=d.content,tr=document.createElement('tr');if(m.activo==='NO')tr.className='inactivo';
     add(tr,m.codigo);add(tr,m.descripcion);add(tr,m.categoria);add(tr,m.proveedorNum);add(tr,m.proveedor);addNum(tr,m.leadTimeDias);
     add(tr,m.unidad);add(tr,m.ubicacion);
     addNum(tr,aplicaMinMax(m)&&tieneValor(m.minimo)?m.minimo:'');addNum(tr,aplicaMinMax(m)&&tieneValor(m.maximo)?m.maximo:'');
+    addMoney(tr,tieneValor(m.costoUnitario)?num(m.costoUnitario):null);
     add(tr,m.activo==='NO'?'No':'Sí');
     add(tr,[m.usuarioModificacion,fmtDateTime(m.fechaModificacion)].filter(Boolean).join(' · '));
     var td=document.createElement('td');
@@ -632,14 +661,14 @@ function insertarMateriales(lista){
   nuevos.forEach(function(m){
     chain=chain.then(function(){return domo.post(CAT_URL,{content:Object.assign({
       codigo:'',descripcion:'',categoria:'',proveedorNum:'',proveedor:'',leadTimeDias:0,unidad:'',ubicacion:'',
-      aplicaMinMax:'NO',minimo:null,maximo:null,stockInicial:0},m,{
+      aplicaMinMax:'NO',minimo:null,maximo:null,stockInicial:0,costoUnitario:null},m,{
       activo:'SI',fechaAlta:ahora,usuarioAlta:CURRENT_USER.label,usuarioAltaId:CURRENT_USER.id,
       fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});});
   });
   return chain.then(function(){return {nuevos:nuevos,omitidos:omitidos};});
 }
 function importarSeed(){
-  if(!requireUser())return;
+  if(!requireAdmin())return;
   if(catalogo.length){showError('El catálogo ya tiene materiales; la importación inicial solo se permite con el catálogo vacío.');return;}
   setBusy(true);clearStatus();
   var res;
@@ -664,7 +693,7 @@ function importarSeed(){
     .then(function(){setBusy(false);});
 }
 function importarPegado(){
-  if(!requireUser())return;
+  if(!requireAdmin())return;
   var lineas=$('pegarTexto').value.split(/\r?\n/).filter(function(l){return l.trim();});
   if(lineas.length&&/c[oó]digo/i.test(lineas[0].split('\t')[0]))lineas.shift();
   var lista=lineas.map(function(l){
@@ -672,7 +701,8 @@ function importarPegado(){
     var min=c[8]!==undefined&&c[8]!==''?num(c[8]):null,max=c[9]!==undefined&&c[9]!==''?num(c[9]):null;
     return {codigo:c[0]||'',descripcion:c[1]||'',categoria:(c[2]||'').toUpperCase(),proveedorNum:c[3]||'',proveedor:c[4]||'',
       leadTimeDias:num(c[5]),unidad:(c[6]||'').toUpperCase(),ubicacion:c[7]||'',
-      aplicaMinMax:min!==null||max!==null?'SI':'NO',minimo:min,maximo:max,stockInicial:num(c[10])};
+      aplicaMinMax:min!==null||max!==null?'SI':'NO',minimo:min,maximo:max,stockInicial:num(c[10]),
+      costoUnitario:c[11]!==undefined&&c[11]!==''?num(String(c[11]).replace(/[$,\s]/g,'')):null};
   });
   if(!lista.length){showError('Pega al menos una fila.');return;}
   setBusy(true);clearStatus();
@@ -832,6 +862,89 @@ function previewZpl(){
     .then(function(){setBusy(false);});
 }
 
+// ================= Usuarios y permisos =================
+// Registrado = está en mro_usuarios y activo. Mientras no haya ningún usuario
+// activo registrado, todos ven todo para poder dar de alta al primero.
+function calcularPermisos(){
+  var activosUsr=usuarios.filter(function(d){return d.content.activo!=='NO';});
+  SIN_USUARIOS=!activosUsr.length;
+  ES_ADMIN=SIN_USUARIOS||(!!CURRENT_USER.id&&activosUsr.some(function(d){return String(d.content.userId)===String(CURRENT_USER.id);}));
+}
+function puedeVer(tab){return ES_ADMIN||TABS_PUBLICAS.indexOf(tab)>=0;}
+function aplicarPermisos(){
+  TABS.forEach(function(t){$('tabBtn'+t).style.display=puedeVer(t)?'':'none';});
+  if(!puedeVer(tabActual))switchTab('Inventario');
+  $('roleBadge').textContent=ES_ADMIN?'Almacén / Admin':'Solicitante';
+  $('roleBadge').className='pill '+(ES_ADMIN?'rol-admin':'rol-solicitante');
+  $('soloMiasSol').parentNode.style.display=ES_ADMIN?'':'none';
+  var aviso=$('avisoUsuarios');
+  if(SIN_USUARIOS){aviso.style.display='';aviso.textContent='No hay usuarios registrados: todos ven todos los apartados. Registra al menos un usuario en la pestaña Usuarios para activar el control de acceso.';}
+  else aviso.style.display='none';
+}
+function requireAdmin(){
+  if(!requireUser())return false;
+  if(ES_ADMIN)return true;
+  showError('Tu usuario no está registrado en el control de usuarios; solo puedes consultar inventario y solicitar material.');
+  return false;
+}
+// Lista de usuarios de DOMO para el autocompletado (si la API no está disponible, se captura el ID a mano).
+function cargarDomoUsers(){
+  return domo.get('/domo/users/v1?includeDetails=true&limit=500').then(function(r){
+    domoUsers=(r||[]).map(function(u){return {id:String(u.id),nombre:u.displayName||u.name||''};}).filter(function(u){return u.id&&u.nombre;});
+    var dl=$('domoUsersList');dl.innerHTML='';
+    domoUsers.sort(function(a,b){return a.nombre<b.nombre?-1:1;}).forEach(function(u){var o=document.createElement('option');o.value=u.nombre+' — '+u.id;dl.appendChild(o);});
+  }).catch(function(){domoUsers=[];});
+}
+function domoUserDesdeInput(v){
+  v=String(v||'').trim();if(!v)return null;
+  var partes=v.split(' — '),id=(partes.length>1?partes[partes.length-1]:v).trim();
+  for(var i=0;i<domoUsers.length;i++)if(domoUsers[i].id===id)return domoUsers[i];
+  return null;
+}
+function usrDoc(userId){for(var i=0;i<usuarios.length;i++)if(String(usuarios[i].content.userId)===String(userId))return usuarios[i];return null;}
+function agregarUsuario(){
+  if(!requireAdmin())return;
+  var v=$('usrDomoInput').value.trim(),u=domoUserDesdeInput(v);
+  var id=u?u.id:(v.split(' — ').pop()||'').trim(),nombre=$('usrNombreInput').value.trim()||(u?u.nombre:'');
+  if(!/^\d+$/.test(id)){showError('Selecciona un usuario de la lista o escribe su ID numérico de DOMO.');return;}
+  if(!nombre){showError('Captura el nombre del usuario.');return;}
+  var ex=usrDoc(id),ahora=new Date().toISOString(),audit={fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id},p;
+  if(ex&&ex.content.activo!=='NO'){showError(nombre+' ya está registrado.');return;}
+  setBusy(true);clearStatus();
+  if(ex)p=domo.put(USR_URL+'/'+ex.id,{content:Object.assign({},ex.content,{nombre:nombre,activo:'SI'},audit)});
+  else p=domo.post(USR_URL,{content:Object.assign({userId:id,nombre:nombre,activo:'SI',fechaAlta:ahora,usuarioAlta:CURRENT_USER.label,usuarioAltaId:CURRENT_USER.id},audit)});
+  p.then(function(){$('usrDomoInput').value='';$('usrNombreInput').value='';showOk('Usuario '+nombre+' registrado.');return cargarDatos();})
+    .catch(function(e){showError('No se pudo registrar el usuario: '+errText(e));})
+    .then(function(){setBusy(false);});
+}
+function toggleUsuario(d){
+  if(!requireAdmin())return;
+  var c=d.content,nuevo=c.activo==='NO'?'SI':'NO';
+  if(nuevo==='NO'&&String(c.userId)===String(CURRENT_USER.id)){showError('No puedes desactivar tu propio usuario; pide a otro usuario registrado que lo haga.');return;}
+  setBusy(true);clearStatus();
+  domo.put(USR_URL+'/'+d.id,{content:Object.assign({},c,{activo:nuevo,fechaModificacion:new Date().toISOString(),usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})})
+    .then(function(){showOk('Usuario '+c.nombre+(nuevo==='SI'?' activado.':' desactivado.'));return cargarDatos();})
+    .catch(function(e){showError('No se pudo actualizar el usuario: '+errText(e));})
+    .then(function(){setBusy(false);});
+}
+function renderUsuarios(){
+  var q=$('buscarUsr').value.toLowerCase(),inact=$('mostrarInactivosUsr').checked,body=$('usuariosTbody');body.innerHTML='';
+  var rows=usuarios.filter(function(d){var c=d.content;
+    if(!inact&&c.activo==='NO')return false;
+    return !q||[c.nombre,c.userId].join(' ').toLowerCase().indexOf(q)>=0;
+  }).sort(function(a,b){return String(a.content.nombre)<String(b.content.nombre)?-1:1;});
+  if(!rows.length){empty(body,6,usuarios.length?'No hay usuarios para los filtros seleccionados.':'No hay usuarios registrados. Usa "Agregarme a mí" para registrarte primero.');return;}
+  rows.forEach(function(d){
+    var c=d.content,tr=document.createElement('tr');if(c.activo==='NO')tr.className='inactivo';
+    add(tr,c.nombre);add(tr,c.userId);add(tr,c.activo==='NO'?'No':'Sí');
+    add(tr,[c.usuarioAlta,fmtDateTime(c.fechaAlta)].filter(Boolean).join(' · '));
+    add(tr,[c.usuarioModificacion,fmtDateTime(c.fechaModificacion)].filter(Boolean).join(' · '));
+    var td=document.createElement('td');
+    td.appendChild(btn(c.activo==='NO'?'Activar':'Desactivar',c.activo==='NO'?'small':'btn-borde-rojo small',function(){toggleUsuario(d);}));
+    tr.appendChild(td);body.appendChild(tr);
+  });
+}
+
 // ================= Modal de motivo =================
 function abrirModal(titulo,texto,onConfirm){
   $('motivoModalTitle').textContent=titulo;$('motivoModalText').textContent=texto;$('motivoTexto').value='';
@@ -854,6 +967,8 @@ function addPill(tr,txt,cls){var td=document.createElement('td'),s=document.crea
 function empty(body,span,msg){var tr=document.createElement('tr'),td=document.createElement('td');td.colSpan=span;td.className='empty-cell';td.textContent=msg;tr.appendChild(td);body.appendChild(tr);}
 function btn(label,cls,fn){var b=document.createElement('button');b.className=cls||'small';b.textContent=label;b.onclick=fn;return b;}
 function esc(s){return String(s===undefined||s===null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function fmtMoney(n){n=Number(n||0);return (n<0?'-':'')+'$'+Math.abs(n).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function addMoney(tr,v){var td=add(tr,v===null||v===undefined?'':fmtMoney(v));td.className='numeric';return td;}
 function fmtFolio(n){return String(n||'').padStart(4,'0');}
 function fmtDateTime(v){if(!v)return '';var d=new Date(v);return isNaN(d)?'':d.toLocaleString('es-MX');}
 function localDateKey(v){if(!v)return '';var d=new Date(v);if(isNaN(d))return '';return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
@@ -863,7 +978,7 @@ function descargar(nombre,contenido,tipo){
   document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1000);
 }
 var busyCount=0;
-function setBusy(v){busyCount=Math.max(0,busyCount+(v?1:-1));v=busyCount>0;loading.style.display=v?'block':'none';['btnEnviarSolicitud','btnRegistrarMov','btnGuardarCat','btnImportarPegado','btnSeed'].forEach(function(id){$(id).disabled=v;});}
+function setBusy(v){busyCount=Math.max(0,busyCount+(v?1:-1));v=busyCount>0;loading.style.display=v?'block':'none';['btnEnviarSolicitud','btnRegistrarMov','btnGuardarCat','btnImportarPegado','btnSeed','btnAgregarUsuario','btnAgregarmeUsuario'].forEach(function(id){$(id).disabled=v;});}
 function showError(s){statusMsg.style.color='#c0392b';statusMsg.textContent=s;}
 function showOk(s){statusMsg.style.color='#1e8449';statusMsg.textContent=s;}
 function clearStatus(){statusMsg.textContent='';}
