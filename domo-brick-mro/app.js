@@ -52,6 +52,9 @@ function init(){
   $('btnExportarMov').onclick=exportarMovimientos;
   // Catálogo
   $('catAplicaMinMax').addEventListener('change',function(){$('catMinimo').disabled=$('catMaximo').disabled=!this.checked;});
+  // Proveedor # y Proveedor se autocompletan entre sí con los ya dados de alta.
+  $('catProveedorNum').addEventListener('input',function(){var n=proveedorPorNum(this.value);if(n)$('catProveedor').value=n;});
+  $('catProveedor').addEventListener('input',function(){var n=numPorProveedor(this.value);if(n&&!$('catProveedorNum').value.trim())$('catProveedorNum').value=n;});
   $('btnGuardarCat').onclick=guardarCatalogo;
   $('btnLimpiarCat').onclick=limpiarCatForm;
   ['buscarCat','filtroCategoriaCat'].forEach(function(id){$(id).addEventListener('input',renderCatalogo);});
@@ -218,6 +221,12 @@ function renderListas(){
   activos().sort(byCodigo).forEach(function(d){var o=document.createElement('option');o.value=d.content.codigo+' — '+d.content.descripcion;dl.appendChild(o);});
   var cats={};catalogo.forEach(function(d){if(d.content.categoria)cats[d.content.categoria]=true;});
   var lista=Object.keys(cats).sort();
+  // Proveedores únicos (número -> nombre)
+  var provs=proveedores(),dn=$('proveedoresNumList'),dp=$('proveedoresList');dn.innerHTML='';dp.innerHTML='';
+  Object.keys(provs).sort().forEach(function(n){var o=document.createElement('option');o.value=n;o.label=provs[n];o.textContent=provs[n];dn.appendChild(o);});
+  var nombres={};Object.keys(provs).forEach(function(n){nombres[provs[n]]=true;});
+  catalogo.forEach(function(d){if(d.content.proveedor)nombres[d.content.proveedor]=true;});
+  Object.keys(nombres).sort().forEach(function(n){var o=document.createElement('option');o.value=n;dp.appendChild(o);});
   var dc=$('categoriasList');dc.innerHTML='';
   lista.forEach(function(c){var o=document.createElement('option');o.value=c;dc.appendChild(o);});
   Array.prototype.forEach.call(document.querySelectorAll('select.cat-filter'),function(sel){
@@ -381,7 +390,7 @@ function renderEntregas(){
     cant.type='number';cant.min='0';cant.step='1';cant.value=Math.max(0,Math.min(num(c.cantidadSolicitada),i.stock));
     tdC.appendChild(cant);tr.appendChild(tdC);
     var tdR=document.createElement('td'),rec=document.createElement('input');
-    rec.type='text';rec.className='wide';rec.value=c.solicitante||'';rec.placeholder='Quién recibe';
+    rec.type='text';rec.className='wide';rec.value='';rec.placeholder='Nombre de quien recibe';
     tdR.appendChild(rec);tr.appendChild(tdR);
     var td=document.createElement('td');
     td.appendChild(btn('Entregar','btn-verde small',function(){entregar(d,Number(cant.value),rec.value.trim());}));
@@ -510,6 +519,10 @@ function exportarMovimientos(){
 }
 
 // ================= Catálogo =================
+// Mapa número de proveedor -> nombre, tomado del catálogo.
+function proveedores(){var r={};catalogo.forEach(function(d){var m=d.content,n=String(m.proveedorNum||'').trim();if(n&&m.proveedor&&!r[n])r[n]=m.proveedor;});return r;}
+function proveedorPorNum(num){return proveedores()[String(num||'').trim()]||'';}
+function numPorProveedor(nombre){var p=proveedores(),k=String(nombre||'').trim().toUpperCase();if(!k)return '';for(var n in p)if(String(p[n]).trim().toUpperCase()===k)return n;return '';}
 function leerCatForm(){
   var aplica=$('catAplicaMinMax').checked;
   return {

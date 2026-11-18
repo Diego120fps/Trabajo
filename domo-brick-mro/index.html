@@ -24,6 +24,8 @@
   <div id="statusMsg" class="status-msg"></div><div id="loading" class="loading" style="display:none">Cargando...</div>
   <datalist id="materialesList"></datalist>
   <datalist id="categoriasList"></datalist>
+  <datalist id="proveedoresNumList"></datalist>
+  <datalist id="proveedoresList"></datalist>
 
   <!-- ================= INVENTARIO ================= -->
   <section id="tabInventario">
@@ -120,8 +122,8 @@
       <div class="filter-group"><label for="catUbicacion">Ubicación</label><input id="catUbicacion" type="text" placeholder="Rack / nivel"></div>
     </div>
     <div class="filters-row">
-      <div class="filter-group"><label for="catProveedorNum">Proveedor #</label><input id="catProveedorNum" type="text"></div>
-      <div class="filter-group grow"><label for="catProveedor">Proveedor</label><input id="catProveedor" type="text"></div>
+      <div class="filter-group"><label for="catProveedorNum">Proveedor #</label><input id="catProveedorNum" type="text" list="proveedoresNumList" autocomplete="off"></div>
+      <div class="filter-group grow"><label for="catProveedor">Proveedor</label><input id="catProveedor" type="text" list="proveedoresList" autocomplete="off"></div>
       <div class="filter-group small-w"><label for="catLeadTime">Lead time (días hábiles)</label><input id="catLeadTime" type="number" min="0" step="1"></div>
       <div class="filter-group small-w"><label for="catStockInicial">Stock inicial</label><input id="catStockInicial" type="number" min="0" step="1"></div>
     </div>
