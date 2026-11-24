@@ -168,8 +168,18 @@ FROM `Localidades de paso`
 GROUP BY `Planta`, `Fecha`
 ```
 
-Está en `LAST_DAY_METRICS`: cada columna muestra el saldo del último día
-del periodo.
+Filtro: `location_id` in ('1221','2300','2200','2190'). Fórmula `Planta`:
+
+```sql
+CASE
+  WHEN `location_id` IN ('1221','2300') THEN 'PLATAFORMA'
+  WHEN `location_id` = '2200' THEN 'AMP'
+  WHEN `location_id` = '2190' THEN 'CALLE 2'
+END
+```
+
+`Fecha` = `inventory_date` (no trae hora). Está en `LAST_DAY_METRICS`:
+cada columna muestra el saldo del último día del periodo.
 
 ## Rama 5: Ajustes (flujo, $)
 
