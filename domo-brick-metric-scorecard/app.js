@@ -13,6 +13,41 @@ var FIELD_FORMATO = 'Formato'; // '%', '$' o '#'
 
 var datasetId = datasets[0];
 
+// ---------- Detalle (clic en una celda) ----------
+//
+// Dataset de detalle (salida "Metricos_Detalle" del mismo ETL), asignado en
+// la posición 1 del brick. Una fila por renglón real (item, localidad,
+// conteo, ajuste...), con las mismas columnas en todos los métricos; las
+// que no apliquen a un métrico van vacías y el brick las oculta.
+var detailDatasetId = datasets[1];
+
+var DETAIL_FIELD_METRICO = 'Metrico';
+var DETAIL_FIELD_PLANTA = 'Planta';
+// Fecha como entero AAAAMMDD (ej. 20261121): los filtros >= / <= numéricos
+// de la Data API sí funcionan (los de fecha con comillas fallaron).
+var DETAIL_FIELD_FECHANUM = 'FechaNum';
+
+// Columnas que se muestran, en orden. type: 'date' | 'num' | 'money' | texto.
+var DETAIL_COLUMNS = [
+  { field: 'Fecha', label: 'Fecha', type: 'date' },
+  { field: 'Planta', label: 'Planta' },
+  { field: 'Item', label: 'Item' },
+  { field: 'Descripcion', label: 'Descripción' },
+  { field: 'Localidad', label: 'Localidad' },
+  { field: 'Cantidad', label: 'Cantidad', type: 'num' },
+  { field: 'UM', label: 'UM' },
+  { field: 'Diferencia', label: 'Diferencia', type: 'num' },
+  { field: 'Valor', label: 'Valor', type: 'money' },
+  { field: 'Referencia', label: 'Referencia' }
+];
+
+// Métricos que usan el detalle de otro (DOS se explica con el inventario
+// por item del mismo día, que es el detalle de DOS_$).
+var DETAIL_SOURCE = { 'DOS': 'DOS_$' };
+
+// Tope de filas pintadas en pantalla (la exportación lleva todas).
+var DETAIL_MAX_SHOWN = 2000;
+
 // Orden de las filas. Los métricos que no estén aquí se agregan al final
 // en orden alfabético.
 var METRIC_ORDER = ['Accuracy', 'Capacidad', 'DOS', 'DOS_$', 'Localidades de paso', 'Ajustes'];
@@ -64,11 +99,22 @@ var btnExport = document.getElementById('btnExport');
 var statusMsg = document.getElementById('statusMsg');
 var scorecardTable = document.getElementById('scorecardTable');
 var legendEl = document.getElementById('legend');
+var detailSection = document.getElementById('detailSection');
+var detailTitle = document.getElementById('detailTitle');
+var detailStatus = document.getElementById('detailStatus');
+var detailTable = document.getElementById('detailTable');
+var btnExportDetail = document.getElementById('btnExportDetail');
 
 // Filas del último rango consultado, y lo que se pintó (para exportar).
 var lastRows = [];
 var lastPeriods = [];
 var lastMetrics = [];
+
+// Detalle de la última celda clicada (para exportar) y un contador para
+// ignorar respuestas de clics anteriores si el usuario cambia de celda.
+var lastDetailRows = [];
+var lastDetailTitle = '';
+var detailRequestId = 0;
 
 init();
 
@@ -76,6 +122,7 @@ function init() {
   cutoffInput.value = toKey(today());
   btnActualizar.addEventListener('click', loadData);
   btnExport.addEventListener('click', exportToExcel);
+  btnExportDetail.addEventListener('click', exportDetailToExcel);
   plantRadios.addEventListener('change', render);
   loadData();
 }
@@ -374,11 +421,217 @@ function renderTable(periods, metrics) {
       var tdValue = document.createElement('td');
       tdValue.className = 'numeric cell-' + p.group + (isGroupStart(periods, i) ? ' group-start' : '');
       tdValue.textContent = formatValue(metric.format, metric.values[i]);
+      if (metric.values[i] !== null && metric.values[i] !== undefined) {
+        tdValue.classList.add('clickable');
+        tdValue.title = 'Ver detalle';
+        tdValue.addEventListener('click', function () {
+          Array.prototype.forEach.call(scorecardTable.querySelectorAll('td.selected-cell'), function (c) {
+            c.classList.remove('selected-cell');
+          });
+          tdValue.classList.add('selected-cell');
+          showDetail(metric, p, metric.totals[i].lastKey);
+        });
+      }
       tr.appendChild(tdValue);
     });
 
     tbody.appendChild(tr);
   });
+}
+
+// ---------- Detalle: consulta y tabla ----------
+
+// Rango de fechas del detalle: para métricos "foto al cierre" es SOLO el
+// día que se usó en la celda (lastKey); para los demás, todo el periodo.
+function showDetail(metric, period, lastKey) {
+  var plant = getSelectedPlant();
+  var sourceMetric = DETAIL_SOURCE[metric.name] || metric.name;
+  var lastDayOnly = LAST_DAY_METRICS.indexOf(metric.name) !== -1 && lastKey;
+  var fromKey = lastDayOnly ? lastKey : period.start;
+  var toKeyValue = lastDayOnly ? lastKey : period.end;
+
+  lastDetailTitle = metric.name + ' · ' + plant + ' · ' + GROUP_TITLES[period.group] + ' ' + period.label +
+    (lastDayOnly ? ' (foto del ' + shortDate(parseKey(lastKey)) + ')' : ' (' + shortDate(parseKey(fromKey)) + ' – ' + shortDate(parseKey(toKeyValue)) + ')');
+  detailTitle.textContent = 'Detalle: ' + lastDetailTitle;
+  detailSection.style.display = '';
+  lastDetailRows = [];
+  renderDetailTable([]);
+
+  if (!detailDatasetId) {
+    detailStatus.textContent = 'Asigna el dataset de detalle en la posición 1 del brick para ver el detalle.';
+    return;
+  }
+
+  var parts = [buildEqFilter(DETAIL_FIELD_METRICO, sourceMetric)];
+  if (plant !== ALL_PLANTS) parts.push(buildEqFilter(DETAIL_FIELD_PLANTA, plant));
+  parts.push(DETAIL_FIELD_FECHANUM + '>=' + keyToNum(fromKey));
+  parts.push(DETAIL_FIELD_FECHANUM + '<=' + keyToNum(toKeyValue));
+
+  var requestId = ++detailRequestId;
+  detailStatus.textContent = 'Cargando detalle...';
+  detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  fetchDetailRows(parts.join(','), function (count) {
+    if (requestId === detailRequestId) {
+      detailStatus.textContent = 'Cargando detalle... (' + count.toLocaleString('es-MX') + ' filas)';
+    }
+  }, function (rows) {
+    if (requestId !== detailRequestId) return;
+    lastDetailRows = rows;
+    renderDetailTable(rows);
+    detailStatus.textContent = rows.length.toLocaleString('es-MX') + ' filas' +
+      (rows.length > DETAIL_MAX_SHOWN ? ' (se muestran las primeras ' + DETAIL_MAX_SHOWN.toLocaleString('es-MX') + '; exporta para ver todas)' : '') + '.';
+  }, function (err) {
+    if (requestId !== detailRequestId) return;
+    logError('Error cargando el detalle', err);
+    detailStatus.textContent = 'No se pudo cargar el detalle. ' + describeError(err);
+  });
+}
+
+function fetchDetailRows(filter, onProgress, onDone, onError) {
+  var collected = [];
+  var offset = 0;
+  var page = 0;
+
+  function fetchPage() {
+    page += 1;
+    if (page > MAX_PAGES) {
+      onError(new Error('Se alcanzó el máximo de páginas (' + MAX_PAGES + ') sin terminar de leer el detalle.'));
+      return;
+    }
+
+    // Los valores con espacio (ej. "CALLE 2", "Localidades de paso") se
+    // mandan con %20; el resto del filtro va igual que en el otro brick.
+    var query = '/data/v1/' + detailDatasetId +
+      '?filter=' + filter.replace(/ /g, '%20') +
+      '&orderby=' + DETAIL_FIELD_FECHANUM + ',' + DETAIL_FIELD_PLANTA + ',Item' +
+      '&limit=' + PAGE_SIZE +
+      '&offset=' + offset;
+
+    console.log('Query Detalle (página ' + page + '):', query);
+
+    domo.get(query)
+      .then(function (data) {
+        data = data || [];
+        collected = collected.concat(data);
+        onProgress(collected.length);
+        if (data.length < PAGE_SIZE) {
+          onDone(collected);
+        } else {
+          offset += PAGE_SIZE;
+          fetchPage();
+        }
+      })
+      .catch(onError);
+  }
+
+  fetchPage();
+}
+
+// Solo se muestran las columnas que traen algún valor en este detalle.
+function visibleDetailColumns(rows) {
+  return DETAIL_COLUMNS.filter(function (col) {
+    return rows.some(function (row) {
+      var v = row[col.field];
+      return v !== null && v !== undefined && v !== '';
+    });
+  });
+}
+
+function renderDetailTable(rows) {
+  var thead = detailTable.querySelector('thead');
+  var tbody = detailTable.querySelector('tbody');
+  var tfoot = detailTable.querySelector('tfoot');
+  thead.innerHTML = '';
+  tbody.innerHTML = '';
+  tfoot.innerHTML = '';
+
+  if (!rows.length) return;
+
+  var columns = visibleDetailColumns(rows);
+
+  var headerRow = document.createElement('tr');
+  columns.forEach(function (col) {
+    var th = document.createElement('th');
+    th.textContent = col.label;
+    if (col.type === 'num' || col.type === 'money') th.className = 'numeric-head';
+    headerRow.appendChild(th);
+  });
+  thead.appendChild(headerRow);
+
+  var totals = {};
+  rows.forEach(function (row, idx) {
+    columns.forEach(function (col) {
+      if (col.type === 'num' || col.type === 'money') {
+        totals[col.field] = (totals[col.field] || 0) + (Number(row[col.field]) || 0);
+      }
+    });
+    if (idx >= DETAIL_MAX_SHOWN) return;
+
+    var tr = document.createElement('tr');
+    columns.forEach(function (col) {
+      var td = document.createElement('td');
+      if (col.type === 'num' || col.type === 'money') td.className = 'numeric';
+      td.textContent = formatDetailValue(col, row[col.field]);
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  // Total de las columnas numéricas (de TODAS las filas, no solo las pintadas).
+  var totalRow = document.createElement('tr');
+  columns.forEach(function (col, i) {
+    var td = document.createElement('td');
+    if (col.type === 'num' || col.type === 'money') {
+      td.className = 'numeric';
+      td.textContent = formatDetailValue(col, totals[col.field]);
+    } else if (i === 0) {
+      td.textContent = 'Total';
+    }
+    totalRow.appendChild(td);
+  });
+  tfoot.appendChild(totalRow);
+}
+
+function formatDetailValue(col, value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (col.type === 'date') return String(value).substring(0, 10);
+  if (col.type === 'num') {
+    return (Number(value) || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });
+  }
+  if (col.type === 'money') {
+    return '$' + (Number(value) || 0).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  return String(value);
+}
+
+function exportDetailToExcel() {
+  if (!lastDetailRows.length) {
+    detailStatus.textContent = 'No hay detalle para exportar.';
+    return;
+  }
+
+  var columns = visibleDetailColumns(lastDetailRows);
+  var headers = columns.map(function (col) { return col.label; });
+  var rows = lastDetailRows.map(function (row) {
+    return columns.map(function (col) {
+      var v = row[col.field];
+      if (col.type === 'date') return v ? String(v).substring(0, 10) : '';
+      return v;
+    });
+  });
+
+  downloadCSV('detalle_' + lastDetailTitle.replace(/[^A-Za-z0-9_$-]+/g, '_') + '.csv', toCSV(headers, rows));
+}
+
+// field='valor', con la comilla simple escapada.
+function buildEqFilter(field, value) {
+  return field + "='" + String(value).replace(/'/g, "''") + "'";
+}
+
+// 'YYYY-MM-DD' -> 20261121
+function keyToNum(key) {
+  return Number(String(key).replace(/-/g, ''));
 }
 
 function groupSpans(periods) {

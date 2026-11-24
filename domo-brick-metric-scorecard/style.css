@@ -309,3 +309,39 @@ td.muted {
 td.error-cell {
   color: #c0392b;
 }
+
+/* ---------- Detalle por celda ---------- */
+
+td.clickable {
+  cursor: pointer;
+}
+
+td.clickable:hover {
+  background: #d7ecfc;
+  text-decoration: underline;
+}
+
+td.selected-cell,
+td.selected-cell:hover {
+  background: #b9dcf8;
+  font-weight: 700;
+}
+
+#detailSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.detail-wrapper {
+  max-height: 420px;
+}
+
+#detailTable tfoot td {
+  position: sticky;
+  bottom: 0;
+  background: #f4f5f7;
+  font-weight: 700;
+  border-top: 2px solid #e4e7eb;
+  padding: 7px 12px;
+}
