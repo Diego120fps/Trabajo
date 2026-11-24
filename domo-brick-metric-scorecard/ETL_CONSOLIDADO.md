@@ -148,7 +148,7 @@ GROUP BY `Planta`, `Fecha`
 - `DATEDIFF(...) BETWEEN 0 AND 89` = el día de la foto y los 89 anteriores
   (90 días naturales), sin depender de un calendario.
 - Ambos métricos están en `LAST_DAY_METRICS` del brick: cada columna toma
-  solo el **último día con foto** del periodo (fin de mes, domingo de la
+  solo el **último día con foto** del periodo (fin de mes, sábado de la
   semana, el día mismo). El año muestra el valor **al corte** (ayer).
 - Base = 0 (sin consumo en 90 días) → el brick muestra "–" en vez de infinito.
 

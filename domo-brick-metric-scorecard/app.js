@@ -38,7 +38,7 @@ var INCLUDE_TODAY = false;
 
 var ALL_PLANTS = 'Todas';
 
-// La semana corre de lunes a domingo.
+// La semana corre de domingo a sábado (como el calendario).
 var MONTH_NAMES = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic'];
 var DAY_NAMES = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
 
@@ -100,7 +100,7 @@ function buildPeriods(cutoff) {
     periods.push({ group: 'month', label: MONTH_NAMES[m], start: toKey(new Date(year, m, 1)), end: toKey(new Date(year, m + 1, 0)) });
   }
 
-  // Semanas que ya terminaron (domingo antes del lunes de esta semana) y
+  // Semanas que ya terminaron (sábado antes del domingo de esta semana) y
   // que tocan el mes corriente. Se recortan al día 1 del mes para no
   // repetir días que ya cuentan en el mes anterior.
   var monthStart = new Date(year, month, 1);
@@ -412,7 +412,7 @@ function renderLegend(cutoff) {
   var lastDay = INCLUDE_TODAY ? cutoff : addDays(cutoff, -1);
   legendEl.textContent = 'Datos hasta el ' + shortDate(lastDay) + ' ' + lastDay.getFullYear() +
     (INCLUDE_TODAY ? ' (incluye el día de hoy, parcial).' : ' (solo días cerrados).') +
-    ' Semanas de lunes a domingo.';
+    ' Semanas de domingo a sábado.';
 }
 
 // ---------- Exportar a Excel (CSV) ----------
@@ -479,9 +479,9 @@ function addDays(date, days) {
   return new Date(date.getFullYear(), date.getMonth(), date.getDate() + days);
 }
 
-// Lunes de la semana de "date".
+// Domingo de la semana de "date".
 function startOfWeek(date) {
-  var offset = (date.getDay() + 6) % 7; // lunes -> 0, domingo -> 6
+  var offset = date.getDay(); // domingo -> 0, sábado -> 6
   return addDays(date, -offset);
 }
 
