@@ -152,6 +152,40 @@ GROUP BY `Planta`, `Fecha`
   semana, el día mismo). El año muestra el valor **al corte** (ayer).
 - Base = 0 (sin consumo en 90 días) → el brick muestra "–" en vez de infinito.
 
+## Rama 4: Localidades de paso (foto diaria, $)
+
+`inventory_master` → Filter (source_id = 31, año actual, location_id,
+bin_name de paso) → Add Formula (`Value_on_hand` = cantidad × costo estándar,
+`Planta`, `Fecha`) → Group By `Planta`, `Fecha` (`quantity_on_hand`,
+`ValorLocalidades`) → tile SQL (el FROM es el nombre exacto del Group By):
+
+```sql
+SELECT `Planta`, 'Localidades de paso' AS Metrico, `Fecha`,
+       SUM(`ValorLocalidades`) AS Valor,
+       1 AS Base,
+       '$' AS Formato
+FROM `Localidades de paso`
+GROUP BY `Planta`, `Fecha`
+```
+
+Está en `LAST_DAY_METRICS`: cada columna muestra el saldo del último día
+del periodo.
+
+## Rama 5: Ajustes (flujo, $)
+
+Misma estructura; `ValorAjustes` = suma del valor de los ajustes del día.
+
+```sql
+SELECT `Planta`, 'Ajustes' AS Metrico, `Fecha`,
+       SUM(`ValorAjustes`) AS Valor,
+       0 AS Base,
+       '$' AS Formato
+FROM `Ajustes`
+GROUP BY `Planta`, `Fecha`
+```
+
+`Base` = 0 → el brick suma los ajustes de todos los días del periodo.
+
 ## Siguientes métricos
 
 Copia el patrón: cada rama termina en las mismas 6 columnas, con los mismos

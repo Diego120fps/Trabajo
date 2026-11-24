@@ -15,7 +15,7 @@ var datasetId = datasets[0];
 
 // Orden de las filas. Los métricos que no estén aquí se agregan al final
 // en orden alfabético.
-var METRIC_ORDER = ['Accuracy', 'Capacidad', 'Days of Supply', 'Inventario'];
+var METRIC_ORDER = ['Accuracy', 'Capacidad', 'Days of Supply', 'Inventario', 'Localidades de paso', 'Ajustes'];
 
 // Cálculo por periodo:
 //   - Si la rama del ETL llena Base -> SUM(Valor) / SUM(Base) del periodo
@@ -30,7 +30,7 @@ var FORMAT_DECIMALS = { '%': 1, '$': 2, '#': 0, 'd': 1 };
 // dentro de su rango (fin de mes, fin de semana, el día mismo; el año queda
 // como el valor al corte). Ese día se suman todas las plantas y se aplica
 // la misma regla Valor / Base.
-var LAST_DAY_METRICS = ['Days of Supply', 'Inventario'];
+var LAST_DAY_METRICS = ['Days of Supply', 'Inventario', 'Localidades de paso'];
 
 // false = solo días CERRADOS (el YTD y los días de la semana llegan hasta
 // ayer). true = incluye el día de hoy (parcial).
