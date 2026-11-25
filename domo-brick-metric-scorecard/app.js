@@ -114,6 +114,10 @@ var lastDetailRows = [];
 var lastDetailTitle = '';
 var detailRequestId = 0;
 
+// Celda cuyo detalle está abierto ({ metricName, periodIndex }), para
+// volver a consultarlo con la nueva planta cuando cambia el filtro.
+var detailSelection = null;
+
 init();
 
 function init() {
@@ -176,6 +180,8 @@ function loadData() {
   lastPeriods = periods;
   lastRows = [];
   renderLegend(cutoff);
+  // Con otra fecha de corte las columnas cambian: se cierra el detalle.
+  closeDetail();
 
   if (periods.length === 0) {
     render();
@@ -293,6 +299,42 @@ function render() {
 
   lastMetrics = aggregateMetrics(rows, lastPeriods);
   renderTable(lastPeriods, lastMetrics);
+  refreshDetailForPlant();
+}
+
+// Si hay un detalle abierto, se vuelve a pedir para la planta seleccionada
+// (mismo métrico y misma columna). En métricos "foto al cierre" el día
+// puede cambiar, porque cada planta tiene su propio último día con datos.
+function refreshDetailForPlant() {
+  if (!detailSelection) return;
+
+  var metric = lastMetrics.filter(function (m) { return m.name === detailSelection.metricName; })[0];
+  var i = detailSelection.periodIndex;
+  var period = lastPeriods[i];
+  if (!period) {
+    closeDetail();
+    return;
+  }
+
+  if (!metric || metric.values[i] === null || metric.values[i] === undefined) {
+    detailRequestId += 1; // descarta respuestas pendientes de la planta anterior
+    lastDetailRows = [];
+    renderDetailTable([]);
+    detailTitle.textContent = 'Detalle: ' + detailSelection.metricName + ' · ' + getSelectedPlant() + ' · ' +
+      GROUP_TITLES[period.group] + ' ' + period.label;
+    detailStatus.textContent = 'Sin datos de este métrico para la planta seleccionada.';
+    return;
+  }
+
+  showDetail(metric, period, metric.totals[i].lastKey, i, true);
+}
+
+function closeDetail() {
+  detailSelection = null;
+  detailRequestId += 1;
+  lastDetailRows = [];
+  renderDetailTable([]);
+  detailSection.style.display = 'none';
 }
 
 // Regresa [{ name, format, values: [valor por periodo] }] en el orden de
@@ -419,6 +461,9 @@ function renderTable(periods, metrics) {
       var tdValue = document.createElement('td');
       tdValue.className = 'numeric cell-' + p.group + (isGroupStart(periods, i) ? ' group-start' : '');
       tdValue.textContent = formatValue(metric.format, metric.values[i]);
+      if (detailSelection && detailSelection.metricName === metric.name && detailSelection.periodIndex === i) {
+        tdValue.classList.add('selected-cell');
+      }
       if (metric.values[i] !== null && metric.values[i] !== undefined) {
         tdValue.classList.add('clickable');
         tdValue.title = 'Ver detalle';
@@ -427,7 +472,7 @@ function renderTable(periods, metrics) {
             c.classList.remove('selected-cell');
           });
           tdValue.classList.add('selected-cell');
-          showDetail(metric, p, metric.totals[i].lastKey);
+          showDetail(metric, p, metric.totals[i].lastKey, i, false);
         });
       }
       tr.appendChild(tdValue);
@@ -441,8 +486,9 @@ function renderTable(periods, metrics) {
 
 // Rango de fechas del detalle: para métricos "foto al cierre" es SOLO el
 // día que se usó en la celda (lastKey); para los demás, todo el periodo.
-function showDetail(metric, period, lastKey) {
+function showDetail(metric, period, lastKey, periodIndex, keepScroll) {
   var plant = getSelectedPlant();
+  detailSelection = { metricName: metric.name, periodIndex: periodIndex };
   var sourceMetric = DETAIL_SOURCE[metric.name] || metric.name;
   var lastDayOnly = LAST_DAY_METRICS.indexOf(metric.name) !== -1 && lastKey;
   var fromKey = lastDayOnly ? lastKey : period.start;
@@ -467,7 +513,7 @@ function showDetail(metric, period, lastKey) {
 
   var requestId = ++detailRequestId;
   detailStatus.textContent = 'Cargando detalle...';
-  detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!keepScroll) detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   fetchDetailRows(parts.join(','), function (count) {
     if (requestId === detailRequestId) {
