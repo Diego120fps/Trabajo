@@ -210,24 +210,20 @@ también sus renglones detallados con estas columnas y todas se unen en otro
 **Append Rows** → **Output Dataset** "Metricos_Detalle". En el brick va en la
 **posición 1** de datasets (el consolidado sigue en la 0).
 
-| Columna       | Tipo    | Qué lleva |
-|---------------|---------|-----------|
-| `Planta`      | Texto   | Igual que en el consolidado |
-| `Metrico`     | Texto   | **Mismo nombre** que en el consolidado |
-| `Fecha`       | Fecha   | Día del renglón |
-| `FechaNum`    | Entero  | `YEAR(Fecha)*10000 + MONTH(Fecha)*100 + DAY(Fecha)` (ej. 20261121) |
-| `Item`        | Texto   | Número de item |
-| `Descripcion` | Texto   | Descripción del item |
-| `Localidad`   | Texto   | Ubicación / bin |
-| `Cantidad`    | Decimal | Cantidad principal |
-| `UM`          | Texto   | Unidad de medida |
-| `Diferencia`  | Decimal | Delta del conteo / cantidad ajustada (si aplica) |
-| `Valor`       | Decimal | Valor en $ del renglón |
-| `Referencia`  | Texto   | Documento, resultado del conteo, rack... |
+| Columna    | Tipo    | Qué lleva |
+|------------|---------|-----------|
+| `Planta`   | Texto   | Igual que en el consolidado |
+| `Fecha`    | Fecha   | Día del renglón |
+| `Metrico`  | Texto   | **Mismo nombre** que en el consolidado |
+| `FechaNum` | Entero  | `YEAR(Fecha)*10000 + MONTH(Fecha)*100 + DAY(Fecha)` (ej. 20261121) |
+| `Item`     | Texto   | Número de item |
+| `Valor`    | Decimal | Valor del renglón |
+| `Formato`  | Texto   | `$` → se muestra como dinero; otro → número |
 
-Lo que no aplique a un métrico va vacío (el brick oculta columnas vacías).
 `FechaNum` es indispensable: el brick filtra el detalle en el servidor con
 `FechaNum >= ... , FechaNum <= ...` (numérico), además de `Metrico` y `Planta`.
+Los nombres de columna distinguen mayúsculas (`FechaNum`, no `fechanum`).
+El total al pie solo se muestra si todas las filas son `$` o `#`.
 
 Qué trae el detalle al dar clic:
 - Métricos que se suman (Accuracy, Capacidad, Ajustes): todos los renglones
@@ -236,15 +232,3 @@ Qué trae el detalle al dar clic:
   celda (ej. el 30 sep para la columna Sep).
 - `DOS` muestra el detalle de `DOS_$` (inventario por item ese día); se
   configura en `DETAIL_SOURCE` de `app.js`.
-
-Por rama (sugerencia de qué poner en cada columna):
-- **Accuracy**: cada conteo → `Item`, `Localidad`, `Cantidad` = físico,
-  `Diferencia` = `Delta`, `Referencia` = `CASE WHEN Delta = 0 THEN 'OK' ELSE 'Diferencia' END`.
-- **Capacidad**: cada localidad ocupada → `Localidad`, `Item`, `Cantidad`,
-  `Referencia` = Rack.
-- **DOS_$**: foto de inventario por item → `Item`, `Localidad`,
-  `Cantidad` = `quantity_on_hand`, `Valor` = `Value_on_hand`.
-- **Localidades de paso**: igual que DOS_$ pero con el filtro de bins de paso,
-  `Localidad` = `bin_name`.
-- **Ajustes**: cada transacción → `Item`, `Localidad`, `Cantidad`, `Valor`,
-  `Referencia` = documento.

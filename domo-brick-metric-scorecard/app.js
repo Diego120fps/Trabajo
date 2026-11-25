@@ -27,18 +27,16 @@ var DETAIL_FIELD_PLANTA = 'Planta';
 // de la Data API sí funcionan (los de fecha con comillas fallaron).
 var DETAIL_FIELD_FECHANUM = 'FechaNum';
 
-// Columnas que se muestran, en orden. type: 'date' | 'num' | 'money' | texto.
+// Columnas del dataset de detalle: Planta, Fecha, Metrico, FechaNum, Item,
+// Valor, Formato. Se muestran estas, en orden. type: 'date' | 'num' |
+// 'money' | 'auto' (número con el formato de la columna Formato de cada
+// fila: '$' -> dinero, cualquier otro -> número) | texto.
+var DETAIL_FIELD_FORMATO = 'Formato';
 var DETAIL_COLUMNS = [
   { field: 'Fecha', label: 'Fecha', type: 'date' },
   { field: 'Planta', label: 'Planta' },
   { field: 'Item', label: 'Item' },
-  { field: 'Descripcion', label: 'Descripción' },
-  { field: 'Localidad', label: 'Localidad' },
-  { field: 'Cantidad', label: 'Cantidad', type: 'num' },
-  { field: 'UM', label: 'UM' },
-  { field: 'Diferencia', label: 'Diferencia', type: 'num' },
-  { field: 'Valor', label: 'Valor', type: 'money' },
-  { field: 'Referencia', label: 'Referencia' }
+  { field: 'Valor', label: 'Valor', type: 'auto' }
 ];
 
 // Métricos que usan el detalle de otro (DOS se explica con el inventario
@@ -485,6 +483,7 @@ function showDetail(metric, period, lastKey) {
     if (requestId !== detailRequestId) return;
     logError('Error cargando el detalle', err);
     detailStatus.textContent = 'No se pudo cargar el detalle. ' + describeError(err);
+    showDetailDatasetColumns();
   });
 }
 
@@ -554,15 +553,20 @@ function renderDetailTable(rows) {
   columns.forEach(function (col) {
     var th = document.createElement('th');
     th.textContent = col.label;
-    if (col.type === 'num' || col.type === 'money') th.className = 'numeric-head';
+    if (isNumericColumn(col)) th.className = 'numeric-head';
     headerRow.appendChild(th);
   });
   thead.appendChild(headerRow);
 
   var totals = {};
+  // Formato del total: '$' si todas las filas son dinero; solo se suma si
+  // todas son '$' o '#' (sumar porcentajes o días no tiene sentido).
+  var formats = distinctValues(rows, DETAIL_FIELD_FORMATO);
+  var totalFormat = formats.length === 1 ? formats[0] : null;
+  var showTotal = formats.every(function (f) { return f === '$' || f === '#'; });
   rows.forEach(function (row, idx) {
     columns.forEach(function (col) {
-      if (col.type === 'num' || col.type === 'money') {
+      if (isNumericColumn(col)) {
         totals[col.field] = (totals[col.field] || 0) + (Number(row[col.field]) || 0);
       }
     });
@@ -571,8 +575,8 @@ function renderDetailTable(rows) {
     var tr = document.createElement('tr');
     columns.forEach(function (col) {
       var td = document.createElement('td');
-      if (col.type === 'num' || col.type === 'money') td.className = 'numeric';
-      td.textContent = formatDetailValue(col, row[col.field]);
+      if (isNumericColumn(col)) td.className = 'numeric';
+      td.textContent = formatDetailValue(col, row[col.field], row[DETAIL_FIELD_FORMATO]);
       tr.appendChild(td);
     });
     tbody.appendChild(tr);
@@ -582,9 +586,9 @@ function renderDetailTable(rows) {
   var totalRow = document.createElement('tr');
   columns.forEach(function (col, i) {
     var td = document.createElement('td');
-    if (col.type === 'num' || col.type === 'money') {
+    if (isNumericColumn(col)) {
       td.className = 'numeric';
-      td.textContent = formatDetailValue(col, totals[col.field]);
+      td.textContent = showTotal ? formatDetailValue(col, totals[col.field], totalFormat) : '';
     } else if (i === 0) {
       td.textContent = 'Total';
     }
@@ -593,9 +597,16 @@ function renderDetailTable(rows) {
   tfoot.appendChild(totalRow);
 }
 
-function formatDetailValue(col, value) {
+function isNumericColumn(col) {
+  return col.type === 'num' || col.type === 'money' || col.type === 'auto';
+}
+
+function formatDetailValue(col, value, rowFormat) {
   if (value === null || value === undefined || value === '') return '';
   if (col.type === 'date') return String(value).substring(0, 10);
+  if (col.type === 'auto') {
+    col = { type: rowFormat === '$' ? 'money' : 'num' };
+  }
   if (col.type === 'num') {
     return (Number(value) || 0).toLocaleString('es-MX', { maximumFractionDigits: 2 });
   }
@@ -622,6 +633,23 @@ function exportDetailToExcel() {
   });
 
   downloadCSV('detalle_' + lastDetailTitle.replace(/[^A-Za-z0-9_$-]+/g, '_') + '.csv', toCSV(headers, rows));
+}
+
+// Diagnóstico igual que el del consolidado: muestra las columnas reales del
+// dataset de detalle (Metrico / Planta / FechaNum deben escribirse igual,
+// con las mismas mayúsculas).
+function showDetailDatasetColumns() {
+  domo.get('/data/v1/' + detailDatasetId + '?limit=1')
+    .then(function (data) {
+      var row = (data || [])[0];
+      var columns = row ? Object.keys(row).join(', ') : '(dataset vacío)';
+      var expected = [DETAIL_FIELD_PLANTA, DETAIL_FIELD_METRICO, DETAIL_FIELD_FECHANUM, 'Fecha', 'Item', 'Valor', DETAIL_FIELD_FORMATO].join(', ');
+      detailStatus.textContent += ' | Columnas del detalle: ' + columns + ' | Esperadas: ' + expected;
+    })
+    .catch(function (err) {
+      logError('Error leyendo 1 fila del detalle', err);
+      detailStatus.textContent += ' | Tampoco se pudo leer 1 fila: revisa que el dataset de detalle esté en la posición 1 del brick.';
+    });
 }
 
 // field='valor', con la comilla simple escapada.
