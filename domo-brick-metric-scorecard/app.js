@@ -39,9 +39,9 @@ var DETAIL_COLUMNS = [
   { field: 'Valor', label: 'Valor', type: 'auto' }
 ];
 
-// Métricos que usan el detalle de otro (DOS se explica con el inventario
-// por item del mismo día, que es el detalle de DOS_$).
-var DETAIL_SOURCE = { 'DOS': 'DOS_$' };
+// Métricos que usan el detalle de otro: { 'Metrico': 'MetricoDelDetalle' }.
+// DOS ya trae su propio detalle (días por item), así que está vacío.
+var DETAIL_SOURCE = {};
 
 // Tope de filas pintadas en pantalla (la exportación lleva todas).
 var DETAIL_MAX_SHOWN = 2000;

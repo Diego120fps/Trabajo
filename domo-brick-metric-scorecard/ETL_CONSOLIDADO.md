@@ -230,5 +230,51 @@ Qué trae el detalle al dar clic:
   del periodo de la celda (mes, semana o día).
 - Métricos "foto al cierre" (`LAST_DAY_METRICS`): solo el día que usó la
   celda (ej. el 30 sep para la columna Sep).
-- `DOS` muestra el detalle de `DOS_$` (inventario por item ese día); se
-  configura en `DETAIL_SOURCE` de `app.js`.
+- `DOS` trae su propio detalle: días por item = inventario $ del item /
+  (consumo $ de sus 90 días / 90), vacío si no tuvo consumo. Ver la
+  consulta "Detalle DOS / DOS_$" abajo.
+
+## Detalle DOS / DOS_$ (tile SQL)
+
+Solo se guardan los días que el brick puede pedir: fin de mes, sábados y
+los últimos 7 días. `MAX` del inventario (no `SUM`): el LEFT JOIN repite al
+item una vez por cada día con consumo dentro de los 90.
+
+```sql
+SELECT Planta, Fecha, Metrico,
+       YEAR(Fecha)*10000 + MONTH(Fecha)*100 + DAY(Fecha) AS FechaNum,
+       Item, Valor, Formato
+FROM (
+    SELECT inv.Planta, inv.Fecha, inv.Item,
+           CASE WHEN SUM(COALESCE(c.ValorConsumo, 0)) > 0
+                THEN MAX(inv.ValorInventario) / (SUM(COALESCE(c.ValorConsumo, 0)) / 90)
+           END AS Valor,
+           'DOS' AS Metrico, 'd' AS Formato
+    FROM (
+        SELECT Planta, Fecha, erp_sku AS Item, SUM(ValorInventario) AS ValorInventario
+        FROM Inventario
+        WHERE Fecha = LAST_DAY(Fecha) OR DAYOFWEEK(Fecha) = 7
+           OR DATEDIFF(CURDATE(), Fecha) BETWEEN 0 AND 7
+        GROUP BY Planta, Fecha, erp_sku
+    ) inv
+    LEFT JOIN (
+        SELECT Planta, Fecha, IL_ITEM_NUMBER_SECOND AS Item, SUM(ABS(ValorConsumo)) AS ValorConsumo
+        FROM Consumos
+        GROUP BY Planta, Fecha, IL_ITEM_NUMBER_SECOND
+    ) c
+        ON c.Planta = inv.Planta AND c.Item = inv.Item
+       AND DATEDIFF(inv.Fecha, c.Fecha) BETWEEN 0 AND 89
+    GROUP BY inv.Planta, inv.Fecha, inv.Item
+
+    UNION ALL
+
+    SELECT Planta, Fecha, erp_sku AS Item, SUM(ValorInventario) AS Valor,
+           'DOS_$' AS Metrico, '$' AS Formato
+    FROM Inventario
+    WHERE Fecha = LAST_DAY(Fecha) OR DAYOFWEEK(Fecha) = 7
+       OR DATEDIFF(CURDATE(), Fecha) BETWEEN 0 AND 7
+    GROUP BY Planta, Fecha, erp_sku
+) x
+```
+
+Si `LAST_DAY` no existe en el tile: `MONTH(Fecha) <> MONTH(DATE_ADD(Fecha, INTERVAL 1 DAY))`.
