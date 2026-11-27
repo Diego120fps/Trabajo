@@ -68,8 +68,8 @@
       <div class="filter-group small-w"><label for="solCantidadInput">Cantidad</label><input id="solCantidadInput" type="number" min="1" step="1"></div>
       <button id="btnAgregarLinea">Agregar</button>
     </div>
-    <div id="solStockInfo" class="stock-info"></div>
-    <div class="table-wrapper"><table><thead><tr><th>Código</th><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th>Stock</th><th>Disponible</th><th></th></tr></thead><tbody id="carritoTbody"></tbody></table></div>
+    <div class="sol-preview"><div id="solImgPreview"></div><div id="solStockInfo" class="stock-info"></div></div>
+    <div class="table-wrapper"><table><thead><tr><th>Imagen</th><th>Código</th><th>Descripción</th><th>Unidad</th><th>Cantidad</th><th>Stock</th><th>Disponible</th><th></th></tr></thead><tbody id="carritoTbody"></tbody></table></div>
     <div class="filters-row">
       <div class="filter-group grow"><label for="solComentarioInput">Comentario (opcional)</label><input id="solComentarioInput" type="text" placeholder="Para qué se requiere"></div>
       <button id="btnEnviarSolicitud">Enviar solicitud</button>
@@ -82,7 +82,7 @@
       <div class="filter-group"><label>Estatus</label><select id="filtroEstatusSol"><option value="">Todos</option><option>Pendiente</option><option>Entregada</option><option>Entregada parcial</option><option>Rechazada</option><option>Cancelada</option></select></div>
       <label class="check"><input id="soloMiasSol" type="checkbox" checked> Solo mis solicitudes</label>
     </div>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Solicitante</th><th>Planta</th><th>Área</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Entregado</th><th>Estatus</th><th>Entregó</th><th>Recibió</th><th>Fecha entrega / cierre</th><th>Comentario / motivo</th><th>Acción</th></tr></thead><tbody id="solicitudesTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha</th><th>Solicitante</th><th>Planta</th><th>Área</th><th>Imagen</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Entregado</th><th>Estatus</th><th>Entregó</th><th>Recibió</th><th>Fecha entrega / cierre</th><th>Comentario / motivo</th><th>Acción</th></tr></thead><tbody id="solicitudesTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ENTREGAS ================= -->
@@ -90,7 +90,7 @@
     <div class="section-header"><h3>Solicitudes pendientes de entregar</h3><button id="btnRefrescarEntregas" class="secondary small">Refrescar</button></div>
     <div class="filters-row"><div class="filter-group"><label>Planta</label><select id="filtroPlantaEnt" class="planta-filter"><option value="">Todas</option></select></div><div class="filter-group"><label>Buscar</label><input id="buscarEnt" type="text" placeholder="Folio / código / solicitante / área"></div></div>
     <span class="hint">Al entregar se registra una salida de inventario con tu usuario como quien entrega. Si entregas menos de lo solicitado, la solicitud queda como "Entregada parcial".</span>
-    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha solicitud</th><th>Solicitante</th><th>Planta</th><th>Área</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Stock</th><th>Cantidad a entregar</th><th>Recibe</th><th>Acción</th></tr></thead><tbody id="entregasTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Folio</th><th>Fecha solicitud</th><th>Solicitante</th><th>Planta</th><th>Área</th><th>Imagen</th><th>Código</th><th>Descripción</th><th>Solicitado</th><th>Stock</th><th>Cantidad a entregar</th><th>Recibe</th><th>Acción</th></tr></thead><tbody id="entregasTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ENTRADAS / SALIDAS ================= -->
@@ -141,6 +141,18 @@
       <label class="check"><input id="catAplicaMinMax" type="checkbox"> Controlar mínimo / máximo</label>
       <div class="filter-group small-w"><label for="catMinimo">Mínimo</label><input id="catMinimo" type="number" min="0" step="1" disabled></div>
       <div class="filter-group small-w"><label for="catMaximo">Máximo</label><input id="catMaximo" type="number" min="0" step="1" disabled></div>
+    </div>
+    <div class="filters-row">
+      <div class="filter-group"><label for="catImgInput">Imagen del producto</label>
+        <div class="img-edit">
+          <div id="catImgPreview"></div>
+          <div class="img-edit-actions">
+            <input id="catImgInput" type="file" accept="image/*">
+            <button id="btnQuitarImg" class="secondary small" type="button">Quitar imagen</button>
+            <span class="hint">JPG o PNG. Se reduce automáticamente a 600 px.</span>
+          </div>
+        </div>
+      </div>
       <button id="btnGuardarCat">Guardar</button>
       <button id="btnLimpiarCat" class="secondary">Limpiar</button>
     </div>
@@ -154,13 +166,14 @@
       <label class="check"><input id="mostrarInactivosCat" type="checkbox"> Mostrar inactivos</label>
       <button id="btnSeed" class="secondary" style="display:none">Importar catálogo del Excel CONTROL_MRO</button>
       <button id="btnTogglePegar" class="secondary">Pegar desde Excel</button>
+      <label class="file-btn secondary" title="El nombre de cada archivo debe ser el código del material, por ejemplo MROBAG1.jpg">Cargar imágenes por código<input id="bulkImgInput" type="file" accept="image/*" multiple></label>
     </div>
     <div id="pegarBox" class="pegar-box" style="display:none">
       <span class="hint">Copia las filas de Excel con estas columnas en este orden: Código, Descripción, Categoría, Proveedor #, Proveedor, Lead time, Unidad, Ubicación, Mínimo, Máximo, Stock inicial, Costo unitario, Planta. Los códigos que ya existen se omiten.</span>
       <textarea id="pegarTexto" rows="6" placeholder="Pega aquí las filas copiadas de Excel"></textarea>
       <div><button id="btnImportarPegado">Importar</button></div>
     </div>
-    <div class="table-wrapper"><table><thead><tr><th>Planta</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor #</th><th>Proveedor</th><th>Lead time</th><th>Unidad</th><th>Ubicación</th><th>Mín</th><th>Máx</th><th>Costo unitario</th><th>Activo</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="catalogoTbody"></tbody></table></div>
+    <div class="table-wrapper"><table><thead><tr><th>Imagen</th><th>Planta</th><th>Código</th><th>Descripción</th><th>Categoría</th><th>Proveedor #</th><th>Proveedor</th><th>Lead time</th><th>Unidad</th><th>Ubicación</th><th>Mín</th><th>Máx</th><th>Costo unitario</th><th>Activo</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="catalogoTbody"></tbody></table></div>
   </section>
 
   <!-- ================= ETIQUETAS ================= -->
@@ -217,6 +230,14 @@
     </div>
     <div class="table-wrapper"><table><thead><tr><th>Nombre</th><th>ID DOMO</th><th>Activo</th><th>Alta</th><th>Última modificación</th><th>Acción</th></tr></thead><tbody id="usuariosTbody"></tbody></table></div>
   </section>
+</div>
+
+<div id="imgModal" class="modal-backdrop" style="display:none">
+  <div class="modal img-modal">
+    <h3 id="imgModalTitle"></h3>
+    <img id="imgModalImg" alt="">
+    <div class="modal-actions"><button id="imgModalCerrar" class="secondary">Cerrar</button></div>
+  </div>
 </div>
 
 <div id="motivoModal" class="modal-backdrop" style="display:none">

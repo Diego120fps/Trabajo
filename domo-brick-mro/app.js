@@ -7,12 +7,15 @@ var CAT_COLLECTION='mro_catalogo';
 var MOV_COLLECTION='mro_movimientos';
 var SOL_COLLECTION='mro_solicitudes';
 var USR_COLLECTION='mro_usuarios';
+// Imágenes en colección aparte para no cargar el catálogo ni el dataset con la imagen.
+var IMG_COLLECTION='mro_imagenes';
+var IMG_MAX=600, IMG_CALIDAD=0.82;
 // Moneda del costo unitario y del valor del inventario.
 var MONEDA='USD';
 // Plantas disponibles.
 var PLANTAS=['AMP','PLATAFORMA','CALLE2'];
 var DOCS=function(c){return '/domo/datastores/v1/collections/'+c+'/documents';};
-var CAT_URL=DOCS(CAT_COLLECTION), MOV_URL=DOCS(MOV_COLLECTION), SOL_URL=DOCS(SOL_COLLECTION), USR_URL=DOCS(USR_COLLECTION);
+var CAT_URL=DOCS(CAT_COLLECTION), MOV_URL=DOCS(MOV_COLLECTION), SOL_URL=DOCS(SOL_COLLECTION), USR_URL=DOCS(USR_COLLECTION), IMG_URL=DOCS(IMG_COLLECTION);
 var REFRESH_MS=300000, PAGE=1000;
 var TABS=['Inventario','Solicitar','Entregas','Movimientos','Catalogo','Etiquetas','Usuarios'];
 // Pestañas visibles para usuarios no registrados en mro_usuarios.
@@ -29,6 +32,8 @@ var info={};          // codigo -> {stock, comprometido, disponible, ultimoMov, 
 var carrito=[];       // [{codigo, cantidad}]
 var selEtq={};        // codigo -> copias
 var editandoCat=null; // documento del catálogo en edición
+var imgPendiente=null; // null = sin cambio, 'QUITAR' o dataURL nueva
+var imgCache={};       // imagenId -> Promise<dataURL>
 var CURRENT_USER={id:null,label:'Usuario desconocido'};
 var $=function(id){return document.getElementById(id);};
 var statusMsg=$('statusMsg'),loading=$('loading');
@@ -70,6 +75,12 @@ function init(){
   $('btnSeed').onclick=importarSeed;
   $('btnTogglePegar').onclick=function(){var b=$('pegarBox');b.style.display=b.style.display==='none'?'':'none';};
   $('btnImportarPegado').onclick=importarPegado;
+  // Imágenes
+  $('catImgInput').addEventListener('change',seleccionarImagenCat);
+  $('btnQuitarImg').onclick=function(){imgPendiente='QUITAR';$('catImgInput').value='';renderCatImgPreview();};
+  $('bulkImgInput').addEventListener('change',cargarImagenesMasivas);
+  $('imgModalCerrar').onclick=cerrarImagen;
+  $('imgModal').addEventListener('click',function(e){if(e.target===this)cerrarImagen();});
   // Usuarios
   $('btnAgregarUsuario').onclick=agregarUsuario;
   $('btnAgregarmeUsuario').onclick=function(){$('usrDomoInput').value=CURRENT_USER.id||'';$('usrNombreInput').value=CURRENT_USER.id?CURRENT_USER.label:'';agregarUsuario();};
@@ -95,6 +106,7 @@ function init(){
   $('filtroPlantaCat').addEventListener('input',renderCatalogo);
   $('catCostoLabel').textContent='Costo unitario ('+MONEDA+')';
   aplicarPermisos();
+  renderCatImgPreview();
   renderMovForm();
   ensureCollections()
     .then(cargarUsuarioActual)
@@ -150,8 +162,9 @@ function ensureOneCollection(name,columns){
 function cols(spec){return spec.split(',').map(function(p){var x=p.split(':');return {name:x[0].trim(),type:x[1]||'STRING'};});}
 function ensureCollections(){
   return Promise.all([
-    ensureOneCollection(CAT_COLLECTION,cols('codigo,descripcion,planta,categoria,proveedorNum,proveedor,leadTimeDias:LONG,unidad,ubicacion,aplicaMinMax,minimo:DOUBLE,maximo:DOUBLE,stockInicial:DOUBLE,costoUnitario:DOUBLE,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
+    ensureOneCollection(CAT_COLLECTION,cols('codigo,descripcion,planta,categoria,proveedorNum,proveedor,leadTimeDias:LONG,unidad,ubicacion,aplicaMinMax,minimo:DOUBLE,maximo:DOUBLE,stockInicial:DOUBLE,costoUnitario:DOUBLE,imagenId,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
     ensureOneCollection(MOV_COLLECTION,cols('fechaHora,tipo,codigo,descripcion,cantidad:DOUBLE,efecto:DOUBLE,costoUnitario:DOUBLE,valor:DOUBLE,stockAnterior:DOUBLE,stockResultante:DOUBLE,planta,referencia,persona,notas,folioSolicitud:LONG,usuario,usuarioId')),
+    ensureOneCollection(IMG_COLLECTION,cols('codigo,fechaHora,usuario,usuarioId')),
     ensureOneCollection(USR_COLLECTION,cols('userId,nombre,activo,fechaAlta,usuarioAlta,usuarioAltaId,fechaModificacion,usuarioModificacion,usuarioModificacionId')),
     ensureOneCollection(SOL_COLLECTION,cols('folio:LONG,linea:LONG,fechaSolicitud,solicitante,solicitanteId,planta,area,comentario,codigo,descripcion,unidad,cantidadSolicitada:DOUBLE,estatus,cantidadEntregada:DOUBLE,entregadoPor,entregadoPorId,recibe,fechaEntrega,motivo,fechaCierre,usuarioCierre,usuarioCierreId'))
   ]);
@@ -330,6 +343,7 @@ function textoStock(d){
 function renderSolStockInfo(){
   var v=$('solMaterialInput').value.trim(),d=materialDesdeInput(v);
   $('solStockInfo').innerHTML=d?textoStock(d):(v?'Material no encontrado o inactivo.':'');
+  var pv=$('solImgPreview');pv.innerHTML='';if(d)pv.appendChild(imgThumb(d.content,120));
 }
 function enCarrito(codigo){return carrito.filter(function(x){return key(x.codigo)===key(codigo);}).reduce(function(a,x){return a+x.cantidad;},0);}
 function agregarLinea(){
@@ -345,10 +359,10 @@ function agregarLinea(){
 }
 function renderCarrito(){
   var body=$('carritoTbody');body.innerHTML='';
-  if(!carrito.length){empty(body,7,'Agrega uno o más materiales a la solicitud.');return;}
+  if(!carrito.length){empty(body,8,'Agrega uno o más materiales a la solicitud.');return;}
   carrito.forEach(function(x,idx){
     var d=matDoc(x.codigo),m=d?d.content:{},i=infoDe(x.codigo),tr=document.createElement('tr');
-    add(tr,x.codigo);add(tr,m.descripcion);add(tr,m.unidad);addNum(tr,x.cantidad);addNum(tr,i.stock);addNum(tr,i.disponible);
+    addImg(tr,m,48);add(tr,x.codigo);add(tr,m.descripcion);add(tr,m.unidad);addNum(tr,x.cantidad);addNum(tr,i.stock);addNum(tr,i.disponible);
     var td=document.createElement('td');td.appendChild(btn('Quitar','btn-borde-rojo small',function(){carrito.splice(idx,1);renderCarrito();}));tr.appendChild(td);
     body.appendChild(tr);
   });
@@ -397,10 +411,10 @@ function renderSolicitudes(){
     if(q&&[fmtFolio(c.folio),c.codigo,c.descripcion,c.solicitante,c.area].join(' ').toLowerCase().indexOf(q)<0)return false;
     return true;
   }).sort(function(a,b){return num(b.content.folio)-num(a.content.folio)||num(a.content.linea)-num(b.content.linea);});
-  if(!rows.length){empty(body,14,'No hay solicitudes para los filtros seleccionados.');return;}
+  if(!rows.length){empty(body,16,'No hay solicitudes para los filtros seleccionados.');return;}
   rows.forEach(function(d){
     var c=d.content,tr=document.createElement('tr');
-    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.planta);add(tr,c.area);add(tr,c.codigo);add(tr,c.descripcion);
+    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.planta);add(tr,c.area);addImg(tr,matContent(c.codigo),40);add(tr,c.codigo);add(tr,c.descripcion);
     addNum(tr,c.cantidadSolicitada);addNum(tr,c.estatus==='Pendiente'?'':c.cantidadEntregada);
     addPill(tr,c.estatus,'est-'+String(c.estatus).replace(/ /g,'-'));
     add(tr,c.entregadoPor);add(tr,c.recibe);add(tr,fmtDateTime(c.fechaEntrega||c.fechaCierre));
@@ -419,10 +433,10 @@ function renderEntregas(){
     var c=d.content;
     return c.estatus==='Pendiente'&&(!pEnt||c.planta===pEnt)&&(!q||[fmtFolio(c.folio),c.codigo,c.descripcion,c.solicitante,c.area].join(' ').toLowerCase().indexOf(q)>=0);
   }).sort(function(a,b){return num(a.content.folio)-num(b.content.folio)||num(a.content.linea)-num(b.content.linea);});
-  if(!rows.length){empty(body,11,'No hay solicitudes pendientes de entregar.');return;}
+  if(!rows.length){empty(body,13,'No hay solicitudes pendientes de entregar.');return;}
   rows.forEach(function(d){
     var c=d.content,i=infoDe(c.codigo),tr=document.createElement('tr');
-    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.planta);add(tr,c.area);add(tr,c.codigo);add(tr,c.descripcion);
+    add(tr,fmtFolio(c.folio));add(tr,fmtDateTime(c.fechaSolicitud));add(tr,c.solicitante);add(tr,c.planta);add(tr,c.area);addImg(tr,matContent(c.codigo),48);add(tr,c.codigo);add(tr,c.descripcion);
     addNum(tr,c.cantidadSolicitada);addNum(tr,i.stock);
     var tdC=document.createElement('td'),cant=document.createElement('input');
     cant.type='number';cant.min='0';cant.step='1';cant.value=Math.max(0,Math.min(num(c.cantidadSolicitada),i.stock));
@@ -605,9 +619,16 @@ function guardarCatalogo(){
   if(editandoCat){
     var prev=editandoCat.content;
     m.codigo=prev.codigo;m.stockInicial=prev.stockInicial;
-    p=domo.put(CAT_URL+'/'+editandoCat.id,{content:Object.assign({},prev,m,{fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});
+    var docId=editandoCat.id;
+    p=persistirImagen(prev.codigo,prev.imagenId,imgPendiente).then(function(imagenId){
+      m.imagenId=imagenId;
+      return domo.put(CAT_URL+'/'+docId,{content:Object.assign({},prev,m,{fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});
+    });
   }else{
-    p=domo.post(CAT_URL,{content:Object.assign(m,{activo:'SI',fechaAlta:ahora,usuarioAlta:CURRENT_USER.label,usuarioAltaId:CURRENT_USER.id,fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});
+    p=persistirImagen(m.codigo,'',imgPendiente).then(function(imagenId){
+      m.imagenId=imagenId;
+      return domo.post(CAT_URL,{content:Object.assign(m,{activo:'SI',fechaAlta:ahora,usuarioAlta:CURRENT_USER.label,usuarioAltaId:CURRENT_USER.id,fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});
+    });
   }
   p.then(function(){showOk('Material '+m.codigo+' guardado.');limpiarCatForm();return cargarDatos();})
     .catch(function(e){showError('No se pudo guardar el material: '+errText(e));})
@@ -619,6 +640,7 @@ function limpiarCatForm(){
   $('catAplicaMinMax').checked=false;$('catMinimo').disabled=$('catMaximo').disabled=true;
   $('catCodigo').readOnly=false;$('catStockInicial').disabled=false;
   $('catFormTitle').textContent='Nuevo material';
+  imgPendiente=null;$('catImgInput').value='';renderCatImgPreview();
 }
 function editarCatalogo(d){
   var m=d.content;editandoCat=d;
@@ -629,6 +651,7 @@ function editarCatalogo(d){
   $('catMinimo').value=tieneValor(m.minimo)?m.minimo:'';$('catMaximo').value=tieneValor(m.maximo)?m.maximo:'';
   $('catCodigo').readOnly=true;$('catStockInicial').disabled=true;
   $('catFormTitle').textContent='Editar material '+m.codigo;
+  imgPendiente=null;$('catImgInput').value='';renderCatImgPreview();
   clearStatus();$('tabCatalogo').scrollIntoView({behavior:'smooth'});
 }
 function toggleActivo(d){
@@ -651,10 +674,10 @@ function renderCatalogo(){
     if(q&&[m.codigo,m.descripcion,m.proveedor,m.proveedorNum,m.ubicacion].join(' ').toLowerCase().indexOf(q)<0)return false;
     return true;
   }).sort(byCodigo);
-  if(!rows.length){empty(body,15,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Usa "Importar catálogo del Excel CONTROL_MRO" o da de alta materiales.');return;}
+  if(!rows.length){empty(body,16,catalogo.length?'No hay materiales para los filtros seleccionados.':'El catálogo está vacío. Usa "Importar catálogo del Excel CONTROL_MRO" o da de alta materiales.');return;}
   rows.forEach(function(d){
     var m=d.content,tr=document.createElement('tr');if(m.activo==='NO')tr.className='inactivo';
-    add(tr,m.planta);add(tr,m.codigo);add(tr,m.descripcion);add(tr,m.categoria);add(tr,m.proveedorNum);add(tr,m.proveedor);addNum(tr,m.leadTimeDias);
+    addImg(tr,m,40);add(tr,m.planta);add(tr,m.codigo);add(tr,m.descripcion);add(tr,m.categoria);add(tr,m.proveedorNum);add(tr,m.proveedor);addNum(tr,m.leadTimeDias);
     add(tr,m.unidad);add(tr,m.ubicacion);
     addNum(tr,aplicaMinMax(m)&&tieneValor(m.minimo)?m.minimo:'');addNum(tr,aplicaMinMax(m)&&tieneValor(m.maximo)?m.maximo:'');
     addMoney(tr,tieneValor(m.costoUnitario)?num(m.costoUnitario):null);
@@ -678,7 +701,7 @@ function insertarMateriales(lista){
   var chain=Promise.resolve();
   nuevos.forEach(function(m){
     chain=chain.then(function(){return domo.post(CAT_URL,{content:Object.assign({
-      codigo:'',descripcion:'',planta:'',categoria:'',proveedorNum:'',proveedor:'',leadTimeDias:0,unidad:'',ubicacion:'',
+      codigo:'',descripcion:'',planta:'',categoria:'',imagenId:'',proveedorNum:'',proveedor:'',leadTimeDias:0,unidad:'',ubicacion:'',
       aplicaMinMax:'NO',minimo:null,maximo:null,stockInicial:0,costoUnitario:null},m,{
       activo:'SI',fechaAlta:ahora,usuarioAlta:CURRENT_USER.label,usuarioAltaId:CURRENT_USER.id,
       fechaModificacion:ahora,usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})});});
@@ -879,6 +902,123 @@ function previewZpl(){
     .then(function(b){var img=$('zplPreview');img.src=URL.createObjectURL(b);img.style.display='';showOk('Vista previa de '+d.content.codigo+'.');})
     .catch(function(e){showError('No se pudo obtener la vista previa (labelary.com): '+errText(e));})
     .then(function(){setBusy(false);});
+}
+
+// ================= Imágenes de producto =================
+function matContent(codigo){var d=matDoc(codigo);return d?d.content:null;}
+// Reduce la imagen a IMG_MAX px y la convierte a JPEG (data URL).
+function procesarImagen(file){
+  return new Promise(function(resolve,reject){
+    if(!file||!/^image\//.test(file.type)){reject(new Error('El archivo '+(file&&file.name||'')+' no es una imagen.'));return;}
+    var fr=new FileReader();
+    fr.onerror=function(){reject(new Error('No se pudo leer '+file.name+'.'));};
+    fr.onload=function(){
+      var img=new Image();
+      img.onerror=function(){reject(new Error('No se pudo abrir la imagen '+file.name+'.'));};
+      img.onload=function(){
+        var k=Math.min(1,IMG_MAX/Math.max(img.width,img.height)),w=Math.max(1,Math.round(img.width*k)),h=Math.max(1,Math.round(img.height*k));
+        var cv=document.createElement('canvas');cv.width=w;cv.height=h;
+        var ctx=cv.getContext('2d');ctx.fillStyle='#fff';ctx.fillRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+        resolve(cv.toDataURL('image/jpeg',IMG_CALIDAD));
+      };
+      img.src=fr.result;
+    };
+    fr.readAsDataURL(file);
+  });
+}
+// Guarda/actualiza/borra la imagen y devuelve el imagenId resultante.
+function persistirImagen(codigo,prevId,pendiente){
+  if(pendiente===null||pendiente===undefined)return Promise.resolve(prevId||'');
+  if(pendiente==='QUITAR'){
+    if(!prevId)return Promise.resolve('');
+    delete imgCache[prevId];
+    return domo.delete(IMG_URL+'/'+prevId).catch(function(){}).then(function(){return '';});
+  }
+  var content={codigo:codigo,imagen:pendiente,fechaHora:new Date().toISOString(),usuario:CURRENT_USER.label,usuarioId:CURRENT_USER.id};
+  if(prevId){
+    delete imgCache[prevId];
+    return domo.put(IMG_URL+'/'+prevId,{content:content}).then(function(){imgCache[prevId]=Promise.resolve(pendiente);return prevId;});
+  }
+  return domo.post(IMG_URL,{content:content}).then(function(r){
+    if(!r||!r.id)throw new Error('AppDB no devolvió el id de la imagen.');
+    imgCache[r.id]=Promise.resolve(pendiente);return r.id;
+  });
+}
+function obtenerImagen(id){
+  if(!imgCache[id])imgCache[id]=domo.get(IMG_URL+'/'+id).then(function(d){return d&&d.content&&d.content.imagen||'';})
+    .catch(function(){delete imgCache[id];return '';});
+  return imgCache[id];
+}
+// Miniatura que se carga cuando es visible; clic para ver en grande.
+var imgObserver='IntersectionObserver' in window?new IntersectionObserver(function(entries){
+  entries.forEach(function(en){if(en.isIntersecting){imgObserver.unobserve(en.target);en.target._cargar();}});
+},{rootMargin:'200px'}):null;
+function imgThumb(m,size){
+  var box=document.createElement('div');box.className='img-thumb';box.style.width=box.style.height=size+'px';
+  if(!m||!m.imagenId){box.classList.add('sin');box.textContent='Sin imagen';return box;}
+  box.classList.add('con-img');box.title='Ver imagen de '+m.codigo;
+  box._cargar=function(){obtenerImagen(m.imagenId).then(function(src){
+    if(!src){box.classList.add('sin');box.textContent='Sin imagen';return;}
+    var img=document.createElement('img');img.src=src;img.alt=m.codigo;box.innerHTML='';box.appendChild(img);
+  });};
+  box.onclick=function(){abrirImagen(m);};
+  if(imgObserver)imgObserver.observe(box);else box._cargar();
+  return box;
+}
+function addImg(tr,m,size){var td=document.createElement('td');td.appendChild(imgThumb(m,size));tr.appendChild(td);return td;}
+function abrirImagen(m){
+  $('imgModalTitle').textContent=m.codigo+' — '+(m.descripcion||'');
+  var im=$('imgModalImg');im.removeAttribute('src');$('imgModal').style.display='';
+  obtenerImagen(m.imagenId).then(function(src){if(src)im.src=src;});
+}
+function cerrarImagen(){$('imgModal').style.display='none';}
+function renderCatImgPreview(){
+  var pv=$('catImgPreview');pv.innerHTML='';
+  var box=document.createElement('div');box.className='img-thumb';box.style.width=box.style.height='96px';
+  var src=imgPendiente&&imgPendiente!=='QUITAR'?imgPendiente:null;
+  var id=imgPendiente===null&&editandoCat?editandoCat.content.imagenId:'';
+  if(src||id){
+    box.classList.add('con-img');
+    var img=document.createElement('img');box.appendChild(img);
+    if(src)img.src=src;else obtenerImagen(id).then(function(s){if(s)img.src=s;});
+  }else{box.classList.add('sin');box.textContent=imgPendiente==='QUITAR'?'Se quitará al guardar':'Sin imagen';}
+  pv.appendChild(box);
+  $('btnQuitarImg').style.display=(src||id)?'':'none';
+}
+function seleccionarImagenCat(){
+  var f=this.files&&this.files[0];if(!f)return;
+  procesarImagen(f).then(function(url){imgPendiente=url;renderCatImgPreview();clearStatus();})
+    .catch(function(e){showError(errText(e));});
+}
+// Carga varias imágenes; cada archivo se asigna al material cuyo código es el nombre del archivo.
+function cargarImagenesMasivas(){
+  var input=this,files=Array.prototype.slice.call(input.files||[]);
+  if(!files.length)return;
+  if(!requireAdmin()){input.value='';return;}
+  setBusy(true);clearStatus();
+  var ok=[],sinMaterial=[],errores=[],chain=Promise.resolve();
+  files.forEach(function(f){
+    chain=chain.then(function(){
+      var codigo=f.name.replace(/\.[^.]+$/,'').trim(),d=matDoc(codigo);
+      if(!d){sinMaterial.push(f.name);return;}
+      return procesarImagen(f).then(function(url){
+        var m=d.content;
+        return persistirImagen(m.codigo,m.imagenId,url).then(function(id){
+          if(id===m.imagenId)return;
+          return domo.put(CAT_URL+'/'+d.id,{content:Object.assign({},m,{imagenId:id,fechaModificacion:new Date().toISOString(),usuarioModificacion:CURRENT_USER.label,usuarioModificacionId:CURRENT_USER.id})})
+            .then(function(){m.imagenId=id;});
+        }).then(function(){ok.push(m.codigo);});
+      }).catch(function(e){errores.push(f.name+': '+errText(e));});
+    });
+  });
+  chain.then(function(){
+    input.value='';
+    var msg=ok.length+' imagen(es) cargada(s).';
+    if(sinMaterial.length)msg+=' Sin material con ese código: '+sinMaterial.join(', ')+'.';
+    if(errores.length)msg+=' Errores: '+errores.join('; ');
+    (sinMaterial.length||errores.length?showError:showOk)(msg);
+    return cargarDatos();
+  }).then(function(){setBusy(false);});
 }
 
 // ================= Plantas =================
